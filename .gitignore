@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# 포터블 빌드용 내장 파이썬 (절대 커밋 금지, 수백 MB)
+python/
+
+# 런타임 캐시·출력물 (클라우드에서 자동 생성됨)
+data/cache/
+data/raw/
+data/processed/
+output/
+
+# 비밀키 (.env.example 만 커밋)
+.env
+
+# OS / 에디터
+Thumbs.db
+.DS_Store
+.idea/
+.vscode/

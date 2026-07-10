@@ -1,0 +1,21 @@
+# 세율·수수료 설정 (세금 엔진 확장 시 사용 — 개정 대응용)
+tax:
+  us_direct:            # 미국 직투·해외상장 ETF
+    capital_gains_rate: 0.22       # 양도소득세 22% (국세 20% + 지방 2%)
+    annual_deduction_krw: 2500000  # 기본공제 연 250만원
+  kr_listed_overseas:   # 국내상장 해외ETF
+    dividend_tax_rate: 0.154       # 매매차익 배당소득 과세 15.4%
+  kr_stock:             # 국내주식 직투
+    transaction_tax: 0.0015        # 증권거래세 0.15%
+    transaction_tax_2026: 0.0020   # 2026년 인상 예정
+    dividend_tax_rate: 0.154
+fees:
+  default_commission: 0.0
+  default_slippage_bp: 0
+loan:
+  default_rate: 0.045
+laoer:
+  version: "V2.2"
+  splits: 40
+  target_pct: 10
+  boundary_t: 20
