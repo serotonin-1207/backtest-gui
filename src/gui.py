@@ -28,7 +28,7 @@ from .validation import validate_synthetic
 OUT_DIR = Path(__file__).resolve().parent.parent / "output" / "reports"
 
 # 배포 버전 — 변경 사항을 올릴 때마다 갱신. 화면에 표시되어 "최신 반영 여부"를 눈으로 확인할 수 있음.
-APP_VERSION = "1.2.0 (2026-07-10) — 적립식 현금관리 계산기(RP·조달이자·수수료) 추가"
+APP_VERSION = "1.3.0 (2026-07-10) — 투자 가이드/리포트 팝업(레버리지 위험·적립식 전략) 추가"
 
 MONEY_COLS = ["총투입금", "추가불입", "중도인출", "순투입금", "최종순자산", "총이자",
               "세금", "세후최종순자산", "매매비용"]
@@ -201,6 +201,10 @@ def render():
         st.divider()
         app_mode = st.radio("🧭 모드", ["📈 가격 백테스트", "💵 적립식 현금관리 계산기"], key="app_mode")
         st.divider()
+
+    # 상단 고정 — 투자 가이드/리포트 (클릭 시 팝업)
+    from .guide import render_pinned_guides
+    render_pinned_guides()
 
     if app_mode.startswith("💵"):
         from .cash_plan_page import render_cash_plan
