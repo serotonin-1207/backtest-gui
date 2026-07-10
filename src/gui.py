@@ -110,7 +110,7 @@ def _rates() -> tuple[dict, str]:
 
 
 def render():
-    st.set_page_config(page_title="투자 백테스트", page_icon="📈", layout="wide",
+    st.set_page_config(page_title="세로토닌 백테스트", page_icon="📈", layout="wide",
                        initial_sidebar_state="expanded")
     st.markdown("""<style>
         [data-testid="stMetricValue"] {font-variant-numeric: tabular-nums; font-size: 1.6rem;}
@@ -124,7 +124,7 @@ def render():
         }
     </style>""", unsafe_allow_html=True)
 
-    st.title("📈 투자 백테스트 대시보드")
+    st.title("📈 세로토닌 백테스트")
     st.caption("제작 serotonin(이은호) · 미국·한국 지수/ETF/개별종목 · 거치식/적립식/라오어 무한매수법 V2.2 · "
                "⚠️ 백테스트 결과는 미래 수익을 보장하지 않습니다. 레버리지 상품은 변동성 감쇠 위험이 있습니다.")
 
