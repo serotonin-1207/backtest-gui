@@ -130,6 +130,8 @@ def render():
 
     # ================================================== 사이드바 (설정 패널)
     with st.sidebar:
+        st.markdown("### 🧑‍💻 제작 이은호")
+        st.divider()
         st.header("⚙️ 설정")
 
         assets = st.multiselect("자산 선택", list(ASSET_PRESETS.keys()),
@@ -220,9 +222,6 @@ def render():
         with st.expander("📚 용어 사전"):
             for k, v in GLOSSARY.items():
                 st.markdown(f"**{k}**  \n{v}")
-
-        st.divider()
-        st.caption("제작 이은호")
 
     # ================================================== 실행
     if run_btn:
