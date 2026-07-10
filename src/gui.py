@@ -28,15 +28,54 @@ from .validation import validate_synthetic
 OUT_DIR = Path(__file__).resolve().parent.parent / "output" / "reports"
 
 # 배포 버전 — 변경 사항을 올릴 때마다 갱신. 화면에 표시되어 "최신 반영 여부"를 눈으로 확인할 수 있음.
-APP_VERSION = "1.3.1 (2026-07-10) — 투자 가이드/리포트 팝업(레버리지 위험·적립식 전략)"
+APP_VERSION = "1.4.0 (2026-07-11) — 라오어 V3.0·티커추가 개선·폭락참고·QQQ/QLD/TQQQ 리포트·모바일 개선"
 
 MONEY_COLS = ["총투입금", "추가불입", "중도인출", "순투입금", "최종순자산", "총이자",
               "세금", "세후최종순자산", "매매비용"]
+
+# 나스닥100(^NDX) 실측 주요 폭락 구간 — 시작/종료일 선택 참고용
+_CRASH_REF_MD = """
+| 사건 | 고점(폭락 시작) | 저점 | 낙폭 | 전고점 회복 |
+|---|---|---|---|---|
+| 닷컴버블 | 2000-03-28 | 2002-10-07 | **-83%** | 2015-11 (약 13년) |
+| 금융위기 | 2007-10-31 | 2008-11-20 | -54% | 2010~2011 |
+| 코로나 쇼크 | 2020-02-20 | 2020-03-20 | -28% | 2020-06 (약 3개월) |
+| 2022 긴축 | 2021-11-22 | 2022-12-28 | -36% | 2023-12 (약 2년) |
+"""
 
 
 def _fmt_rate(x: float) -> str:
     """환율 표시: 1 이상은 소수 2자리, 1 미만은 유효숫자 유지 (1 KRW = 0.000663 USD)."""
     return f"{x:,.2f}" if x >= 1 else f"{x:.6f}"
+
+
+def _add_custom_ticker():
+    """➕추가 콜백 — 티커 존재 검증 후 목록에 담고 입력칸 비움."""
+    raw = (st.session_state.get("new_ticker_input") or "").strip()
+    if not raw:
+        return
+    ov = {"자동": None, "한국(kr)": "kr", "미국(us)": "us"}[st.session_state.get("new_ticker_ov", "자동")]
+    src, cur = route_ticker(raw, ov)
+    tk = raw.upper() if src == "yahoo" else raw
+    try:
+        df = get_price(tk, src, cur)
+        ok = df is not None and not df.empty
+    except Exception:
+        ok = False
+    if not ok:
+        st.session_state.ticker_msg = ("error", f"'{raw}' — 존재하지 않거나 데이터를 찾을 수 없는 티커입니다.")
+        return
+    if any(t["ticker"] == tk for t in st.session_state.custom_tickers):
+        st.session_state.ticker_msg = ("warn", f"{tk} 은(는) 이미 추가되어 있습니다.")
+    else:
+        st.session_state.custom_tickers.append({"name": tk, "ticker": tk, "source": src, "currency": cur})
+        st.session_state.ticker_msg = ("ok", f"✅ {tk} 추가됨 ({cur})")
+    st.session_state.new_ticker_input = ""      # 입력칸 초기화
+
+
+def _remove_custom_ticker(i: int):
+    if 0 <= i < len(st.session_state.custom_tickers):
+        st.session_state.custom_tickers.pop(i)
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -102,11 +141,19 @@ def _tax_info(r, fx_rates: dict):
 HELP = {
     "자산": "백테스트 대상. 프리셋에서 고르거나 아래 '사용자 티커'로 직접 추가 (6자리 숫자=한국, 알파벳=미국 자동 판별).",
     "시작기준": "실제 데이터일: 각 자산의 실제 데이터 시작일부터. 동일 시작일(합성): TQQQ/QLD 등 상장 이전 구간을 기초지수 일간수익률x배수로 합성해 채움 — 합성 구간은 결과에 [합성포함] 표시.",
-    "투자방식": "거치식: 시작일 전액 일시 투자 / 적립식: 주기별 분할 매수 / 라오어: 무한매수법 V2.2 (40분할).",
+    "투자방식": "거치식: 시작일 전액 일시 투자 / 적립식: 주기별 분할 매수 / 라오어: 무한매수법(라오어 설정에서 V2.2·V3.0 선택). "
+               "기본값은 거치식+적립식 동시 비교. 여러 개 고르면 선택 자산마다 각각 계산됩니다.",
+    "티커추가": "티커를 입력하고 ➕추가를 누르면 존재하는 티커인지 확인 후 목록에 담깁니다. 6자리 숫자=한국, 알파벳=미국 자동 판별. "
+               "목록의 ✖로 제거. 프리셋에 없는 종목(예: AAPL, NVDA, 000660)을 넣을 때 사용.",
     "불입인출": "특정 날짜의 추가 불입·중도 인출. 금액은 '투자금 기준 화폐'로 입력하며 자산 통화로 자동 환산. "
                "반복(매월/매년) 지정 가능. 모두 현금흐름으로 기록되어 XIRR에 정확히 반영됨.",
     "대출": "옵션 A(일시 대출형): 시작일 대출 실행, 매년 이자 차감(주식 매도), 종료일 원금 상환. 순자산 = 평가액 - 대출잔액.",
-    "라오어": "V2.2: 원금 40분할, T값에 따라 전반전(절반 평단 LOC + 절반 (10-T/2)% LOC)/후반전 매수, 매일 1/4 LOC + 3/4 +10% 지정가 매도. 소진 시 대기 또는 쿼터손절.",
+    "라오어": "V2.2(안정형·40분할·단리): 매도목표 +10%, 오프셋 (10−T/2)%. "
+             "V3.0(공격형·20분할·복리): 매도목표 +15%, 오프셋 (15−1.5T)%, 세트마다 수익을 1회 매수금에 반영 → 수익·낙폭 모두 커짐. "
+             "전반전은 절반 평단 LOC + 절반 오프셋 LOC, 후반전은 오프셋 LOC 하나. 매일 1/4 LOC + 3/4 지정가 매도.",
+    "세금비용": "세금 반영(미국 22%/국내ETF 15.4%/국내주식 비과세), 지수 배당 보정(TR 근사), 환율 효과(언헤지 일별환율), 매매 수수료·슬리피지(bp). "
+               "모두 기본 OFF = 세전·비용0. 켜면 세전/세후를 나란히 비교합니다.",
+    "모드": "📈 가격 백테스트: 자산 가격 기준 수익 시뮬레이션. 💵 적립식 현금관리 계산기: 대기자금 RP운용·조달이자·수수료의 순효과 계산.",
     "기준화폐": "투자금을 어느 통화로 입력하는지. 예: KRW 선택 + 10,000 입력 = 1만원 투자. "
                "자산의 거래 통화가 다르면(예: TQQQ=달러) 현재 환율로 환산한 금액이 투입됨.",
     "표시통화": "결과표·KPI의 금액을 선택한 통화로 현재 환율 기준 단순 환산해 표시. 기본값은 투자금 기준 화폐. "
@@ -129,7 +176,8 @@ GLOSSARY = {
     "원금 대비 배수": "최종 순자산 ÷ 순투입금. 10배면 넣은 돈이 10배가 됐다는 뜻.",
     "순투입금": "총투입금(원금+추가불입) − 중도인출. 실제로 내 주머니에서 나간 순액.",
     "로그 스케일": "차트 세로축을 배수 기준으로 표시(100→200과 1,000→2,000이 같은 높이). 장기 복리 성장 비교에 필수 — 선형축은 최근 구간만 커 보이는 착시를 만듦.",
-    "T값 (라오어)": "누적 매수액 ÷ 1회 매수액. 원금 40분할 중 몇 회차까지 썼는지. T<20 전반전, T≥20 후반전, 39.1 이상이면 원금 소진.",
+    "T값 (라오어)": "누적 매수액 ÷ 1회 매수액. 분할 수 중 몇 회차까지 썼는지. T<20 전반전, T≥20 후반전, 소진 근처면 원금 소진.",
+    "라오어 V2.2 / V3.0": "V2.2=안정형(40분할·단리·매도 +10%). V3.0=공격형(20분할·복리·매도 +15%, 오프셋 15−1.5T%). V3.0은 수익도 낙폭도 더 큼.",
     "라오어 세트": "첫 매수부터 전량 매도(익절)까지의 한 사이클. 완료 세트 수가 많고 소요일이 짧을수록 회전이 잘 된 것.",
     "LOC 주문": "Limit On Close. 종가가 지정가보다 유리하면 종가로 체결되는 주문. 백테스트에서는 '종가 ≤ 매수지정가면 종가 매수'로 근사.",
     "MOC 주문": "Market On Close. 종가에 무조건 체결되는 시장가 주문.",
@@ -139,6 +187,11 @@ GLOSSARY = {
     "거치식": "시작일에 전액 일시 투자. 상승장에 유리하지만 진입 시점 운에 크게 좌우됨.",
     "적립식": "일정 주기로 나눠 매수(코스트 애버리징). 진입 시점 위험이 분산되지만 상승장에서는 늦게 들어간 만큼 수익금이 적음.",
     "XIRR와 CAGR가 다른 이유": "CAGR(TWR)는 '전략 자체의 성과', XIRR는 '내 돈의 성과'. 적립식에서 상승장 후반에 돈이 많이 들어갔다면 XIRR가 CAGR보다 낮아질 수 있음.",
+    "세후최종순자산 / 세후XIRR": "세금(미국 22%·국내ETF 15.4% 등)을 반영한 값. 세금 토글을 켜면 세전 옆에 함께 표시됩니다.",
+    "환효과기여": "환율 효과 ON일 때, '원화(기준화폐) 수익률 − 자산통화 수익률'. 원화 약세면 +, 강세면 −. 달러자산 수익 중 환율이 기여한 몫.",
+    "매매비용 / 슬리피지": "수수료(bp)와 체결 미끄러짐(bp)을 매 거래에 반영한 누적 비용. 라오어처럼 매매가 잦으면 커짐. 1bp=0.01%.",
+    "RP (대기자금 운용)": "아직 투자 안 된 현금을 CMA RP·발행어음·외화RP로 굴려 얻는 이자. '적립식 현금관리 계산기' 모드에서 계산.",
+    "후순위 조달": "적립 투자금이 부족할 때 빌려서 조달하는 자금. '한 번에'보다 '매일 필요한 만큼'이 이자를 아껴 대개 유리.",
 }
 
 CHART_GUIDE = """
@@ -184,12 +237,20 @@ def render():
     st.markdown("""<style>
         [data-testid="stMetricValue"] {font-variant-numeric: tabular-nums; font-size: 1.6rem;}
         div[data-testid="stDataFrame"] {font-variant-numeric: tabular-nums;}
-        /* 모바일(좁은 화면) 대응 — 휴대폰에서 KPI/제목이 넘치지 않게 */
+        /* 멀티셀렉트: '전체 지우기(X)'가 아래화살표와 붙어 오탭되는 문제 → X 숨기고 간격 확보 */
+        [data-baseweb="select"] [aria-label="Clear all"],
+        [data-baseweb="select"] [title="Clear all"] { display:none !important; }
+        [data-baseweb="select"] [data-baseweb="icon"] { padding:0 3px; }
+        /* 모바일(좁은 화면) 대응 */
         @media (max-width: 640px) {
             [data-testid="stMetricValue"] {font-size: 1.1rem;}
             [data-testid="stMetricLabel"] {font-size: 0.78rem;}
             h1 {font-size: 1.4rem;}
-            .block-container {padding: 0.8rem 0.6rem;}
+            /* 상단 '투자 전 필독' 배너가 헤더에 가려 잘리지 않게 위 여백 확보 */
+            .block-container {padding: 3rem 0.7rem 1rem !important;}
+            /* 드롭다운 화살표를 키워 정확히 누르기 쉽게, X와 분리 */
+            [data-baseweb="select"] svg {min-width:22px; min-height:22px;}
+            [data-baseweb="select"] [data-baseweb="icon"] {padding:0 6px;}
         }
     </style>""", unsafe_allow_html=True)
 
@@ -215,7 +276,7 @@ def render():
 
 def _render_backtest():
     st.title("📈 세로토닌 백테스트")
-    st.caption("제작 serotonin(이은호) · 미국·한국 지수/ETF/개별종목 · 거치식/적립식/라오어 무한매수법 V2.2 · "
+    st.caption("제작 serotonin(이은호) · 미국·한국 지수/ETF/개별종목 · 거치식/적립식/라오어(V2.2·V3.0) · "
                "⚠️ 백테스트 결과는 미래 수익을 보장하지 않습니다. 레버리지 상품은 변동성 감쇠 위험이 있습니다.")
 
     # ================================================== 사이드바 (설정 패널)
@@ -225,9 +286,23 @@ def _render_backtest():
         assets = st.multiselect("자산 선택", list(ASSET_PRESETS.keys()),
                                 default=["나스닥100", "TQQQ"], help=HELP["자산"])
 
-        custom_raw = st.text_input("사용자 티커 추가 (쉼표 구분)", "",
-                                   help="예: AAPL, 005930 — 6자리 숫자는 한국, 알파벳은 미국으로 자동 라우팅")
-        custom_override = st.selectbox("사용자 티커 국가 지정", ["자동", "한국(kr)", "미국(us)"], index=0)
+        if "custom_tickers" not in st.session_state:
+            st.session_state.custom_tickers = []
+        tc1, tc2 = st.columns([2, 1])
+        tc1.text_input("사용자 티커 추가", key="new_ticker_input", placeholder="예: AAPL, 005930",
+                       help="티커를 입력하고 ➕추가. 존재하는 티커면 아래 목록에 담깁니다. "
+                            "6자리 숫자=한국, 알파벳=미국 자동 판별.")
+        tc2.selectbox("국가", ["자동", "한국(kr)", "미국(us)"], index=0, key="new_ticker_ov")
+        st.button("➕ 추가", on_click=_add_custom_ticker, use_container_width=True)
+        msg = st.session_state.pop("ticker_msg", None)
+        if msg:
+            {"ok": st.success, "warn": st.warning, "error": st.error}[msg[0]](msg[1])
+        if st.session_state.custom_tickers:
+            st.caption("**추가된 사용자 티커**")
+            for i, t in enumerate(st.session_state.custom_tickers):
+                rc1, rc2 = st.columns([4, 1])
+                rc1.markdown(f"• `{t['ticker']}` ({t['currency']})")
+                rc2.button("✖", key=f"rm_tk_{i}", on_click=_remove_custom_ticker, args=(i,))
 
         start_basis = st.radio("데이터 시작 기준", ["실제 데이터 시작일", "동일 시작일(합성 채움)"],
                                help=HELP["시작기준"])
@@ -236,9 +311,13 @@ def _render_backtest():
         c1, c2 = st.columns(2)
         start_date = c1.date_input("시작일", date(2015, 1, 1), min_value=date(1980, 1, 1))
         end_date = c2.date_input("종료일", date.today())
+        with st.expander("📉 나스닥100 주요 폭락 구간 (참고)"):
+            st.caption("아래 날짜를 시작/종료일 잡을 때 참고하세요. 나스닥100(^NDX) 기준이며 "
+                       "S&P500·개별종목 등은 시점이 조금씩 다릅니다.")
+            st.markdown(_CRASH_REF_MD)
 
         modes = st.multiselect("투자 방식 (자산마다 각각 적용)",
-                               ["거치식", "적립식", "라오어 V2.2"], default=["거치식"],
+                               ["거치식", "적립식", "라오어"], default=["거치식", "적립식"],
                                help=HELP["투자방식"])
 
         base_label = st.selectbox("투자금 기준 화폐", list(CURRENCY_LABELS.values()), index=0,
@@ -259,10 +338,18 @@ def _render_backtest():
             if dca_span == "직접입력":
                 dca_years = st.number_input("적립 기간(년)", 0.5, 50.0, 3.0, 0.5)
 
-        with st.expander("♾️ 라오어 설정", expanded=False):
+        with st.expander("♾️ 라오어 설정 (투자방식에 '라오어' 선택 시)", expanded=False):
+            laoer_ver_label = st.selectbox("라오어 버전",
+                                           ["V2.2 (안정형·40분할·단리)", "V3.0 (공격형·20분할·복리)"], index=0,
+                                           help="V2.2: 매도목표 +10%, 매수/매도 오프셋 (10−T/2)%. "
+                                                "V3.0: 매도목표 +15%, 오프셋 (15−1.5T)%, 세트마다 복리로 1회 매수금 증가 → "
+                                                "수익·낙폭 모두 커짐.")
+            laoer_version = "V3.0" if laoer_ver_label.startswith("V3.0") else "V2.2"
+            _def_split = 20 if laoer_version == "V3.0" else 40
+            _def_target = 15.0 if laoer_version == "V3.0" else 10.0
             st.caption(HELP["라오어"])
-            laoer_splits = st.number_input("분할 수", 10, 100, 40)
-            laoer_target = st.number_input("지정가 매도 목표(%)", 1.0, 30.0, 10.0, 0.5)
+            laoer_splits = st.number_input("분할 수", 10, 100, _def_split)
+            laoer_target = st.number_input("지정가 매도 목표(%)", 1.0, 30.0, _def_target, 0.5)
             laoer_boundary = st.number_input("전/후반 경계 T", 5.0, 40.0, 20.0, 1.0)
             laoer_exhaustion = st.selectbox("원금 소진 시", ["대기", "쿼터손절"])
             laoer_contrib = st.selectbox("라오어 중 추가불입 처리",
@@ -335,12 +422,8 @@ def _render_backtest():
         for a in assets:
             p = ASSET_PRESETS[a]
             targets.append({"name": a, **p})
-        if custom_raw.strip():
-            ov = {"자동": None, "한국(kr)": "kr", "미국(us)": "us"}[custom_override]
-            for t in [x.strip() for x in custom_raw.split(",") if x.strip()]:
-                src, cur = route_ticker(t, ov)
-                targets.append({"name": t.upper(), "ticker": t.upper() if src == "yahoo" else t,
-                                "source": src, "currency": cur})
+        for t in st.session_state.get("custom_tickers", []):
+            targets.append(dict(t))
         if not targets or not modes:
             st.warning("자산과 투자 방식을 각각 1개 이상 선택하세요.")
             st.stop()
@@ -386,15 +469,15 @@ def _render_backtest():
             for mode in modes:
                 job += 1
                 prog.progress(job / total_jobs, text=f"{tgt['name']} · {mode} 계산 중…")
-                sname = f"{tgt['name']}·{mode.replace(' V2.2','')}"
+                sname = f"{tgt['name']}·{mode}{laoer_version if mode == '라오어' else ''}"
                 try:
-                    if mode == "라오어 V2.2":
+                    if mode == "라오어":
                         r = run_laoer(ohlc, sname, cap_a, start=start_date, end=end_date,
                                       splits=int(laoer_splits), target_pct=laoer_target,
                                       boundary_t=laoer_boundary, exhaustion=laoer_exhaustion,
                                       events=events_a, contrib_mode=laoer_contrib,
                                       currency=acur, synthetic_mask=mask,
-                                      fee_bp=fee_bp, slippage_bp=slip_bp)
+                                      fee_bp=fee_bp, slippage_bp=slip_bp, version=laoer_version)
                     else:
                         r = run_backtest(ohlc, sname, mode, cap_a, start=start_date, end=end_date,
                                          dca_freq=dca_freq, dca_years=dca_years, events=events_a,
@@ -425,7 +508,7 @@ def _render_backtest():
             "기준화폐": f"{base_code} ({SUPPORTED.get(base_code, ('', ''))[1]})",
             "적용환율": f"{rates_str} (기준일 {fx_date})" if rates_str else "환산 없음",
             "적립주기": dca_freq, "적립기간": dca_span,
-            "라오어": f"V2.2 {laoer_splits}분할, 목표 {laoer_target}%, 경계 T={laoer_boundary}, 소진={laoer_exhaustion}",
+            "라오어": f"{laoer_version} {laoer_splits}분할, 목표 {laoer_target}%, 경계 T={laoer_boundary}, 소진={laoer_exhaustion}",
             "대출": f"{'ON' if loan_on else 'OFF'} (금액 {loan_amount:,.0f} {base_code}, 금리 {loan_rate:.2%})",
             "불입/인출 이벤트 수": len(events),
             "세금": f"{'ON (미국22%/국내ETF15.4%)' if tax_on else 'OFF (세전)'}",

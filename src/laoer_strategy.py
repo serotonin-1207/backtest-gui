@@ -47,6 +47,7 @@ def run_laoer(
     synthetic_mask: pd.Series | None = None,
     fee_bp: float = 0.0,
     slippage_bp: float = 0.0,
+    version: str = "V2.2",             # "V2.2"(안정·40분할·단리) | "V3.0"(공격·20분할·복리)
 ) -> BacktestResult:
     df = ohlc.copy()
     if start:
@@ -96,6 +97,14 @@ def run_laoer(
     def t_value() -> float:
         return _ceil1(cum_buy / one_buy) if one_buy > 0 else 0.0
 
+    def offset_pct(T: float) -> float:
+        """LOC 매수/1-4 매도 오프셋. V2.2=(target-T/2)%, V3.0=(15-1.5T)%."""
+        if version == "V3.0":
+            return (15.0 - 1.5 * T) / 100.0
+        return (target_pct - T / 2) / 100.0
+
+    star_pct = 0.15 if version == "V3.0" else target_pct / 100.0   # 3/4 지정가 목표
+
     def do_buy(spend: float, price: float) -> None:
         """호가(price) 기준으로 매수 + 거래비용 차감. 전략 로직(평단·cum_buy)은 호가 기준 유지."""
         nonlocal shares, avg, cum_buy, cash
@@ -130,10 +139,12 @@ def run_laoer(
             "세트손익": round(cash - set_cash_base, 2),
             "종료사유": reason,
         })
-        # 다음 세트 준비 (단리: 원금 동일 + 대기 불입금 반영)
+        # 다음 세트 준비
         if pending_contrib > 0:
             set_principal += pending_contrib
             pending_contrib = 0.0
+        if version == "V3.0":
+            set_principal = cash        # 복리: 현재 자본으로 1회 매수금 재계산
         one_buy = set_principal / splits
         shares = 0.0
         avg = 0.0
@@ -190,9 +201,9 @@ def run_laoer(
             continue
 
         T = t_value()
-        sell_pct = (target_pct - T / 2) / 100.0        # (10 - T/2)%
+        sell_pct = offset_pct(T)                        # V2.2 (10-T/2)% / V3.0 (15-1.5T)%
         loc_sell_limit = avg * (1 + sell_pct)
-        star_limit = avg * (1 + target_pct / 100.0)    # +10% 지정가
+        star_limit = avg * (1 + star_pct)               # 3/4 지정가 (+10% / +15%)
 
         # ---------- 매도 (보유 시, 매일 2건)
         sold_all = False
@@ -231,7 +242,7 @@ def run_laoer(
         T = t_value()
         remaining = max(set_principal - cum_buy, 0.0)
         if remaining > 1e-9 and not waiting and shares >= 0:
-            buy_pct = (target_pct - T / 2) / 100.0      # (10 - T/2)%
+            buy_pct = offset_pct(T)                     # V2.2 (10-T/2)% / V3.0 (15-1.5T)%
             loc_buy_limit = avg * (1 + buy_pct)
             budget = min(one_buy, remaining, cash)
             spent = 0.0
