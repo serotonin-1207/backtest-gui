@@ -13,26 +13,91 @@ from .ai_report import build_ai_report, save_ai_report
 from .backtest_engine import run_backtest
 from .charts import (fig_annual_returns, fig_cash_ratio, fig_drawdown,
                      fig_equity, fig_final_values, fig_monthly_heatmap, fig_t_series)
-from .currency import CURRENCY_LABELS, SUPPORTED, convert, cross_rate, get_rates, korean_money
-from .data_loader import ASSET_PRESETS, SYNTH_BASE, cache_status, clear_cache, get_price, route_ticker
+from .currency import (CURRENCY_LABELS, SUPPORTED, convert, cross_rate, get_fx_series,
+                       get_rates, korean_money)
+from .data_loader import (ASSET_PRESETS, INDEX_DIV_YIELD, PRICE_INDEX_TICKERS, SYNTH_BASE,
+                          cache_status, clear_cache, get_price, route_ticker, tax_category)
 from .excel_export import build_excel
 from .interpret import interpret_results
 from .laoer_strategy import run_laoer
-from .metrics import summarize
-from .synthetic_etf import extend_with_synthetic
+from .metrics import summarize, xirr
+from .synthetic_etf import apply_dividend_addback, extend_with_synthetic
+from .tax_engine import compute_tax
 from .validation import validate_synthetic
 
 OUT_DIR = Path(__file__).resolve().parent.parent / "output" / "reports"
 
 # 배포 버전 — 변경 사항을 올릴 때마다 갱신. 화면에 표시되어 "최신 반영 여부"를 눈으로 확인할 수 있음.
-APP_VERSION = "1.0.1 (2026-07-10)"
+APP_VERSION = "1.1.0 (2026-07-10) — 세금·배당보정·환율효과·매매비용 추가"
 
-MONEY_COLS = ["총투입금", "추가불입", "중도인출", "순투입금", "최종순자산", "총이자"]
+MONEY_COLS = ["총투입금", "추가불입", "중도인출", "순투입금", "최종순자산", "총이자",
+              "세금", "세후최종순자산", "매매비용"]
 
 
 def _fmt_rate(x: float) -> str:
     """환율 표시: 1 이상은 소수 2자리, 1 미만은 유효숫자 유지 (1 KRW = 0.000663 USD)."""
     return f"{x:,.2f}" if x >= 1 else f"{x:.6f}"
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fx_series_cached(from_cur: str, to_cur: str):
+    """일별 환율 시계열 (1시간 캐시). 실패 시 None."""
+    try:
+        return get_fx_series(from_cur, to_cur)
+    except Exception:
+        return None
+
+
+def _fx_on_index(from_cur: str, to_cur: str, index):
+    """from→to 일별 환율을 equity 인덱스에 맞춰 ffill 정렬. 없으면 None."""
+    if from_cur == to_cur:
+        return None
+    s = _fx_series_cached(from_cur, to_cur)
+    if s is None or len(s) == 0:
+        return None
+    return s.reindex(index.union(s.index)).sort_index().ffill().bfill().reindex(index)
+
+
+def _at(series, d) -> float:
+    """series에서 날짜 d의 값(가장 가까운 과거값). NaN 방지."""
+    d = pd.Timestamp(d)
+    if d in series.index and pd.notna(series.loc[d]):
+        return float(series.loc[d])
+    pos = min(max(series.index.searchsorted(d), 0), len(series) - 1)
+    v = series.iloc[pos]
+    return float(v) if pd.notna(v) else float(series.dropna().iloc[-1])
+
+
+def _effective_series(r, fx_on: bool, base_code: str):
+    """환율효과 반영 시 기준화폐 곡선 반환. (eq_eff, cashflows_eff, flows_eff, eff_ccy, 환효과기여)."""
+    eqa = r.equity.dropna()
+    if fx_on and r.currency != base_code:
+        fx = _fx_on_index(r.currency, base_code, eqa.index)
+        if fx is not None and fx.notna().any():
+            eq = eqa * fx
+            cfs = [(d, a * _at(fx, d)) for d, a in r.cashflows]
+            flows = {d: a * _at(fx, d) for d, a in r.flows.items()}
+            aret = eqa.iloc[-1] / eqa.iloc[0] - 1 if eqa.iloc[0] > 0 else 0.0
+            bret = eq.iloc[-1] / eq.iloc[0] - 1 if eq.iloc[0] > 0 else 0.0
+            return eq, cfs, flows, base_code, bret - aret
+    return eqa, list(r.cashflows), dict(r.flows), r.currency, None
+
+
+def _tax_info(r, fx_rates: dict):
+    """실현손익 기반 세금 계산 (자산통화 total_tax_asset)."""
+    cat = getattr(r, "tax_cat", "none")
+    gains = getattr(r, "realized_gains", [])
+    if cat == "us_overseas":
+        fxk = _fx_on_index(r.currency, "KRW", r.equity.dropna().index)
+        if fxk is not None and fxk.notna().any():
+            to_krw = lambda amt, dt: amt * _at(fxk, dt)
+            final_fx = float(fxk.dropna().iloc[-1])
+        else:
+            rate = cross_rate(r.currency, "KRW", fx_rates) or 1.0
+            to_krw = lambda amt, dt: amt * rate
+            final_fx = rate
+        return compute_tax(gains, cat, to_krw=to_krw, asset_to_krw_final=final_fx)
+    return compute_tax(gains, cat)
 
 HELP = {
     "자산": "백테스트 대상. 프리셋에서 고르거나 아래 '사용자 티커'로 직접 추가 (6자리 숫자=한국, 알파벳=미국 자동 판별).",
@@ -206,6 +271,24 @@ def render():
             st.caption(f"= {loan_amount:,.0f} {base_code} ({korean_money(loan_amount, base_code)})")
             loan_rate = st.number_input("대출금리(연 %)", 0.0, 30.0, 4.5, 0.1) / 100.0
 
+        with st.expander("💵 세금 · 매매비용 · 환율효과 (현실화)", expanded=False):
+            st.caption("기본값은 모두 OFF(세전·비용0·환율고정) = 기존 결과와 동일. 켜면 더 현실적인 값이 됩니다.")
+            tax_on = st.toggle("세금 반영", value=False,
+                               help="미국 자산: 양도소득세 22%(연 250만원 공제, 손익통산, 거래일 환율 원화환산). "
+                                    "국내 ETF: 매매차익 15.4%. 국내주식: 양도차익 비과세. "
+                                    "※ 만기 청산 기준 근사 — 세전/세후를 나란히 표시합니다.")
+            div_on = st.toggle("지수 배당 보정 (TR 근사)", value=False,
+                               help="S&P500·나스닥100·코스피 등 '가격지수'는 배당이 빠져 있어 ETF와 비교 시 불리하게 보입니다. "
+                                    "켜면 대략적 배당수익률을 더해 총수익(TR)에 가깝게 보정합니다.")
+            fx_on = st.toggle("환율 효과 반영 (언헤지)", value=False,
+                              help="달러 등 외화 자산을 기준화폐로 볼 때, 과거 '일별 환율 변동(환손익)'을 수익률에 반영합니다. "
+                                   "OFF면 환헤지 가정(자산 통화 수익률만).")
+            cc1, cc2 = st.columns(2)
+            fee_bp = cc1.number_input("매매 수수료(bp, 편도)", 0.0, 100.0, 0.0, 1.0,
+                                      help="1bp=0.01%. 예: 국내 5bp, 미국 8bp 정도. 라오어처럼 매매가 잦으면 영향 큼.")
+            slip_bp = cc2.number_input("슬리피지(bp, 편도)", 0.0, 300.0, 0.0, 1.0,
+                                       help="체결 미끄러짐. LOC/지정가 가정의 현실성 검증용.")
+
         st.divider()
         run_btn = st.button("🚀 백테스트 실행", type="primary", use_container_width=True)
 
@@ -269,6 +352,8 @@ def render():
         for tgt in targets:
             try:
                 ohlc, mask = _load_asset(tgt["ticker"], tgt["source"], tgt["currency"], same_start)
+                if div_on and tgt["ticker"] in PRICE_INDEX_TICKERS:
+                    ohlc = apply_dividend_addback(ohlc, INDEX_DIV_YIELD.get(tgt["ticker"], 0.0))
                 if ohlc.attrs.get("stale"):
                     stale_warn.append(tgt["name"])
             except Exception as e:
@@ -291,13 +376,17 @@ def render():
                                       splits=int(laoer_splits), target_pct=laoer_target,
                                       boundary_t=laoer_boundary, exhaustion=laoer_exhaustion,
                                       events=events_a, contrib_mode=laoer_contrib,
-                                      currency=acur, synthetic_mask=mask)
+                                      currency=acur, synthetic_mask=mask,
+                                      fee_bp=fee_bp, slippage_bp=slip_bp)
                     else:
                         r = run_backtest(ohlc, sname, mode, cap_a, start=start_date, end=end_date,
                                          dca_freq=dca_freq, dca_years=dca_years, events=events_a,
                                          loan_on=loan_on, loan_amount=loan_a,
                                          loan_rate=loan_rate, currency=acur,
-                                         synthetic_mask=mask)
+                                         synthetic_mask=mask,
+                                         fee_bp=fee_bp, slippage_bp=slip_bp)
+                    r.tax_cat = tax_category(tgt["ticker"], acur)
+                    r.asset_ticker = tgt["ticker"]
                     results.append(r)
                 except Exception as e:
                     errors.append(f"{sname}: {e}")
@@ -322,13 +411,18 @@ def render():
             "라오어": f"V2.2 {laoer_splits}분할, 목표 {laoer_target}%, 경계 T={laoer_boundary}, 소진={laoer_exhaustion}",
             "대출": f"{'ON' if loan_on else 'OFF'} (금액 {loan_amount:,.0f} {base_code}, 금리 {loan_rate:.2%})",
             "불입/인출 이벤트 수": len(events),
-            "세금/수수료": "미반영(MVP)",
+            "세금": f"{'ON (미국22%/국내ETF15.4%)' if tax_on else 'OFF (세전)'}",
+            "환율효과(언헤지)": f"{'ON (일별 환율 반영)' if fx_on else 'OFF (환헤지 가정)'}",
+            "지수배당보정": f"{'ON (TR 근사)' if div_on else 'OFF'}",
+            "매매비용": f"수수료 {fee_bp:.0f}bp + 슬리피지 {slip_bp:.0f}bp (편도)",
             "통화처리": "투자금은 기준 화폐로 입력 → 자산 통화로 현재 환율 환산 투입 → 표시 통화로 환산 출력",
         }
         st.session_state["results"] = results
         st.session_state["settings"] = settings_snapshot
         st.session_state["base_code"] = base_code
         st.session_state["fx"] = (fx_rates, fx_date)
+        st.session_state["adv"] = {"tax_on": tax_on, "fx_on": fx_on, "div_on": div_on,
+                                   "fee_bp": fee_bp, "slip_bp": slip_bp}
 
     # ================================================== 결과 표시
     results = st.session_state.get("results")
@@ -336,28 +430,10 @@ def render():
         st.info("좌측 사이드바에서 자산·투자방식을 고른 뒤 **백테스트 실행**을 누르세요.")
         return
     settings_snapshot = st.session_state.get("settings", {})
-
-    # ---- 요약표 구성 (원본 통화 기준)
-    rows = []
-    for r in results:
-        m = summarize(r.equity.dropna(), r.cashflows, flows=r.flows, net_invested=r.net_invested)
-        rows.append({
-            "전략명": r.name, "통화": r.currency,
-            "데이터": "합성포함" if r.is_synthetic_used else "실제",
-            "총투입금": r.total_invested, "추가불입": r.total_contrib,
-            "중도인출": r.total_withdraw, "순투입금": r.net_invested,
-            "최종순자산": r.final_value,
-            "원금대비배수": r.final_value / r.net_invested if r.net_invested > 0 else None,
-            "총수익률": m["총수익률"], "CAGR": m["CAGR"], "XIRR": m["XIRR"],
-            "MDD": m["MDD"], "연율변동성": m["연율변동성"], "샤프": m["샤프"],
-            "소르티노": m["소르티노"], "칼마": m["칼마"], "최장무회복일": m["최장무회복일"],
-            "대출": "O" if r.loan_used else "-", "총이자": r.total_interest,
-            "완료세트": len(r.laoer_sets[r.laoer_sets["종료사유"] != "진행중"])
-                       if r.laoer_sets is not None and not r.laoer_sets.empty else None,
-        })
-    summary_df = pd.DataFrame(rows)
-
-    # ---- 표시 통화 (현재 환율 단순 환산, 기본값 = 투자금 기준 화폐)
+    adv = st.session_state.get("adv", {})
+    tax_on = adv.get("tax_on", False)
+    fx_on = adv.get("fx_on", False)
+    fee_used = adv.get("fee_bp", 0.0) > 0 or adv.get("slip_bp", 0.0) > 0
     base_code_s = st.session_state.get("base_code", "KRW")
     fx_rates, fx_date = st.session_state.get("fx", ({}, ""))
     if not fx_rates:
@@ -365,6 +441,56 @@ def render():
             fx_rates, fx_date = _rates()
         except Exception:
             fx_rates, fx_date = {"USD": 1.0}, ""
+
+    # ---- 요약표 구성 (환율효과·세금·매매비용 반영)
+    rows = []
+    for r in results:
+        eq_eff, cfs_eff, flows_eff, eff_ccy, fx_contrib = _effective_series(r, fx_on, base_code_s)
+        conv = 1.0 if eff_ccy == r.currency else (cross_rate(r.currency, eff_ccy, fx_rates) or 1.0)
+        net_inv = r.net_invested * conv
+        final_v = float(eq_eff.iloc[-1])
+        m = summarize(eq_eff, cfs_eff, flows=flows_eff, net_invested=net_inv)
+
+        tax_eff = 0.0
+        after_xirr = None
+        if tax_on:
+            ti = _tax_info(r, fx_rates)
+            tax_eff = convert(ti["total_tax_asset"], r.currency, eff_ccy, fx_rates)
+            cfs_after = list(cfs_eff)
+            if cfs_after:
+                d_last, a_last = cfs_after[-1]
+                cfs_after[-1] = (d_last, a_last - tax_eff)
+            after_xirr = xirr(cfs_after)
+        after_final = final_v - tax_eff
+
+        rows.append({
+            "전략명": r.name, "통화": eff_ccy,
+            "데이터": "합성포함" if r.is_synthetic_used else "실제",
+            "총투입금": r.total_invested * conv, "추가불입": r.total_contrib * conv,
+            "중도인출": r.total_withdraw * conv, "순투입금": net_inv,
+            "최종순자산": final_v,
+            "원금대비배수": final_v / net_inv if net_inv > 0 else None,
+            "총수익률": m["총수익률"], "CAGR": m["CAGR"], "XIRR": m["XIRR"],
+            "MDD": m["MDD"], "연율변동성": m["연율변동성"], "샤프": m["샤프"],
+            "소르티노": m["소르티노"], "칼마": m["칼마"], "최장무회복일": m["최장무회복일"],
+            "대출": "O" if r.loan_used else "-", "총이자": r.total_interest * conv,
+            "매매비용": getattr(r, "total_fees", 0.0) * conv,
+            "세금": tax_eff, "세후최종순자산": after_final, "세후XIRR": after_xirr,
+            "환효과기여": fx_contrib,
+            "완료세트": len(r.laoer_sets[r.laoer_sets["종료사유"] != "진행중"])
+                       if r.laoer_sets is not None and not r.laoer_sets.empty else None,
+        })
+    summary_df = pd.DataFrame(rows)
+
+    # 토글이 꺼진 열은 표에서 제외 (혼란 방지)
+    drop = []
+    if not tax_on:
+        drop += ["세금", "세후최종순자산", "세후XIRR"]
+    if not fx_on:
+        drop += ["환효과기여"]
+    if not fee_used:
+        drop += ["매매비용"]
+    summary_df = summary_df.drop(columns=[c for c in drop if c in summary_df.columns])
 
     cur_options = list(CURRENCY_LABELS)
     tc1, tc2 = st.columns([2, 3])
@@ -400,7 +526,9 @@ def render():
 
     display_df = summary_df.copy()
     for col in MONEY_COLS:
-        display_df[col] = [convert(v, c, target_cur, fx_rates)
+        if col not in display_df.columns:
+            continue
+        display_df[col] = [convert(v, c, target_cur, fx_rates) if pd.notna(v) else v
                            for v, c in zip(summary_df[col], summary_df["통화"])]
     display_df["통화"] = [target_cur if c in fx_rates and target_cur in fx_rates else c
                           for c in summary_df["통화"]]
@@ -425,21 +553,36 @@ def render():
 
     # ---- 요약표
     with tabs[0]:
-        sort_key = st.selectbox("정렬 기준", ["최종순자산", "XIRR", "MDD", "칼마", "CAGR", "완료세트"], index=0)
+        sort_opts = ["최종순자산", "XIRR", "MDD", "칼마", "CAGR", "완료세트"]
+        if "세후최종순자산" in display_df.columns:
+            sort_opts.insert(1, "세후최종순자산")
+        sort_key = st.selectbox("정렬 기준", sort_opts, index=0)
         asc = sort_key == "MDD"
         show = display_df.sort_values(sort_key, ascending=asc, na_position="last")
+        pct_cols = ("총수익률", "CAGR", "XIRR", "MDD", "연율변동성", "세후XIRR", "환효과기여")
         st.dataframe(show, hide_index=True, use_container_width=True,
                      column_config={c: st.column_config.NumberColumn(format="percent" if c in
-                                    ("총수익률", "CAGR", "XIRR", "MDD", "연율변동성") else "localized")
+                                    pct_cols else "localized")
                                     for c in show.columns if show[c].dtype.kind == "f"})
         # 한글 금액 요약 줄
         lines = [f"- **{r['전략명']}**: 최종 순자산 {r['최종순자산']:,.0f} {r['통화']} = "
-                 f"**{korean_money(r['최종순자산'], r['통화'])}** "
-                 f"(순투입 {korean_money(r['순투입금'], r['통화'])})"
+                 f"**{korean_money(r['최종순자산'], r['통화'])}**"
+                 + (f" → 세후 **{korean_money(r['세후최종순자산'], r['통화'])}**" if "세후최종순자산" in show.columns else "")
                  for _, r in show.iterrows()]
         st.markdown("**💬 금액 한글 표기**\n" + "\n".join(lines))
         st.caption("ℹ️ 총수익률=순투입금 대비 단순 수익률 · CAGR/MDD/샤프 등=불입·인출 효과를 제거한 "
                    "시간가중(TWR) 기준 · XIRR=실제 현금흐름 기준 연환산. 자세한 정의는 좌측 '📚 용어 사전' 참고.")
+        notes = []
+        if tax_on:
+            notes.append("세금: 미국 22%(연 250만원 공제·손익통산·거래일 환율) / 국내ETF 15.4% / 국내주식 비과세 — "
+                         "만기 청산 기준 근사입니다. '세후' 열과 비교하세요.")
+        if fx_on:
+            notes.append("환율효과 ON: 외화 자산을 기준화폐로 볼 때 과거 일별 환율 변동을 수익률에 반영했습니다. "
+                         "'환효과기여' = 원화수익률 − 자산통화수익률.")
+        if fee_used:
+            notes.append("매매비용(수수료+슬리피지)이 매 거래에 반영되어 '매매비용' 열에 누적 표시됩니다.")
+        for n in notes:
+            st.caption("• " + n)
         if summary_df["데이터"].eq("합성포함").any():
             st.caption("⚠️ '합성포함' 전략은 상장 이전 구간을 기초지수 일간수익률×배수로 합성한 데이터입니다 — 실제 가격이 아닙니다.")
 

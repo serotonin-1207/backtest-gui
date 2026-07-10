@@ -19,6 +19,25 @@ def synthesize_close(base_close: pd.Series, leverage: float, annual_fee: float =
     return 100.0 * (1.0 + daily).cumprod()
 
 
+def apply_dividend_addback(ohlc: pd.DataFrame, annual_yield: float) -> pd.DataFrame:
+    """가격지수(배당 제외)에 연 배당수익률을 일할로 더해 총수익(TR) 근사 시계열 생성.
+
+    일간 총수익 = 가격수익률 + 연배당수익률/252. O/H/L/C 전체에 동일 배율 적용.
+    """
+    if annual_yield <= 0:
+        return ohlc
+    close = ohlc["Close"].astype(float)
+    daily = close.pct_change().fillna(0.0) + annual_yield / TRADING_DAYS
+    tr = close.iloc[0] * (1.0 + daily).cumprod()
+    scale = (tr / close).values
+    out = ohlc.copy()
+    for col in ("Open", "High", "Low", "Close"):
+        if col in out.columns:
+            out[col] = out[col].astype(float).values * scale
+    out.attrs.update(ohlc.attrs)
+    return out
+
+
 def extend_with_synthetic(ticker: str, actual: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     """실제 상장 이전 구간을 합성으로 채운 OHLC와 is_synthetic 마스크 반환.
 

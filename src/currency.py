@@ -50,6 +50,42 @@ def get_rates(currencies: list[str] | None = None) -> tuple[dict[str, float], st
     return rates, ref_date
 
 
+def get_fx_series(from_cur: str, to_cur: str) -> "pd.Series | None":
+    """일별 환율 시계열 (1 from_cur = ? to_cur). 과거 환율 효과(언헤지) 계산용.
+    실패하거나 동일 통화면 None(=환산 불필요) 반환."""
+    import pandas as pd
+    if from_cur == to_cur:
+        return None
+
+    def usd_to(cur: str):
+        if cur == "USD":
+            return None  # 1.0 상수
+        try:
+            s = get_price(f"{cur}=X", source="yahoo", currency=cur)["Close"].astype(float)
+            return s.dropna()
+        except Exception:
+            if cur == "KRW":
+                try:
+                    return get_price("USD/KRW", source="fdr", currency="KRW")["Close"].astype(float).dropna()
+                except Exception:
+                    return None
+            return None
+
+    sf = usd_to(from_cur)   # 1 USD = ? from
+    st = usd_to(to_cur)     # 1 USD = ? to
+    # cross: 1 from = (1/sf) USD = (st/sf) to
+    if sf is None and st is None:
+        return None
+    if sf is None:          # from=USD → 1 USD = st to
+        return st
+    if st is None:          # to=USD → 1 from = 1/sf USD
+        return 1.0 / sf
+    common = sf.index.intersection(st.index)
+    if len(common) == 0:
+        return None
+    return (st.loc[common] / sf.loc[common]).dropna()
+
+
 def convert(value: float, from_cur: str, to_cur: str, rates: dict[str, float]) -> float:
     """현재 환율 기준 단순 환산 (USD 크로스). 환율 없는 통화면 원값 반환."""
     if from_cur == to_cur:

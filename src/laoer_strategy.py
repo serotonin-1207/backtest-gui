@@ -12,7 +12,8 @@ T값 = 누적매수액 / 1회매수액 (소수점 둘째 자리에서 올림 →
   - LOC 매도: 종가 >= 지정가 → 종가 체결
   - 지정가 매도(+10%): 당일 고가 >= 지정가 → 지정가 체결 (합성 구간은 종가로 판정)
   - 부분 매도 시 누적매수액에서 '매도 수량 x 평단'(원금 부분)을 차감 — T값 하락
-주의: 소수 수량(분할 주식) 허용, 수수료·세금 미반영(MVP).
+수수료·슬리피지: 매매 회전액에 (fee_bp+slippage_bp)를 곱해 현금에서 차감(전략 로직은 호가 기준 유지).
+실현손익: 매도마다 (순수령 - 수량 x 평단)을 기록해 세금 계산에 사용.
 """
 from __future__ import annotations
 
@@ -44,6 +45,8 @@ def run_laoer(
     contrib_mode: str = "다음 세트부터 반영",   # or "즉시 현금 추가"
     currency: str = "USD",
     synthetic_mask: pd.Series | None = None,
+    fee_bp: float = 0.0,
+    slippage_bp: float = 0.0,
 ) -> BacktestResult:
     df = ohlc.copy()
     if start:
@@ -53,6 +56,7 @@ def run_laoer(
     if len(df) < 2:
         raise ValueError(f"[{name}] 기간 내 데이터가 부족합니다.")
 
+    c = (fee_bp + slippage_bp) / 1e4     # 편도 거래비용률 (회전액 대비)
     idx = df.index
     close = df["Close"].astype(float)
     high = df["High"].astype(float) if "High" in df else close
@@ -91,6 +95,31 @@ def run_laoer(
 
     def t_value() -> float:
         return _ceil1(cum_buy / one_buy) if one_buy > 0 else 0.0
+
+    def do_buy(spend: float, price: float) -> None:
+        """호가(price) 기준으로 매수 + 거래비용 차감. 전략 로직(평단·cum_buy)은 호가 기준 유지."""
+        nonlocal shares, avg, cum_buy, cash
+        q = spend / price
+        avg = (avg * shares + spend) / (shares + q) if (shares + q) > 0 else price
+        shares += q
+        cum_buy += spend
+        cash -= spend
+        cost = spend * c
+        cash -= cost
+        res.total_fees += cost
+
+    def do_sell(q: float, price: float, dt) -> None:
+        """q주를 price에 매도 + 거래비용 차감. 실현손익 기록. cum_buy에서 원금부분 차감."""
+        nonlocal shares, cum_buy, cash
+        if q <= 0:
+            return
+        proceeds = q * price
+        cost = proceeds * c
+        cash += proceeds - cost
+        res.total_fees += cost
+        res.realized_gains.append((dt, (proceeds - cost) - q * avg))
+        shares -= q
+        cum_buy = max(cum_buy - q * avg, 0.0)
 
     def close_set(dt, reason: str):
         nonlocal shares, avg, cum_buy, set_no, set_start, set_invested_max
@@ -142,8 +171,7 @@ def run_laoer(
                 remain = take - from_cash
                 if remain > 0 and shares > 0:
                     q = min(shares, remain / px)
-                    shares -= q
-                    cum_buy = max(cum_buy - q * avg, 0.0)
+                    do_sell(q, px, dt)
                 res.cashflows.append((dt, take))
                 res.total_withdraw += take
                 res.flows[dt] = res.flows.get(dt, 0.0) - take
@@ -154,11 +182,7 @@ def run_laoer(
         if shares == 0.0 and cum_buy == 0.0:
             spend = min(one_buy, cash)
             if spend > 0 and px > 0:
-                q = spend / px
-                shares += q
-                avg = px
-                cum_buy += spend
-                cash -= spend
+                do_buy(spend, px)
                 set_invested_max = max(set_invested_max, cum_buy)
             t_list.append(t_value())
             eq_list.append(cash + shares * px)
@@ -178,16 +202,10 @@ def run_laoer(
             q2 = pre_shares - q1
             s1 = s2 = False
             if px >= loc_sell_limit:                    # 1/4 LOC 매도 → 종가 체결
-                proceeds = q1 * px
-                cash += proceeds
-                shares -= q1
-                cum_buy = max(cum_buy - q1 * avg, 0.0)
+                do_sell(q1, px, dt)
                 s1 = True
             if hi >= star_limit:                        # 3/4 지정가 매도 → 지정가 체결
-                proceeds = q2 * star_limit
-                cash += proceeds
-                shares -= q2
-                cum_buy = max(cum_buy - q2 * avg, 0.0)
+                do_sell(q2, star_limit, dt)
                 s2 = True
             if s1 and s2:
                 sold_all = True
@@ -204,9 +222,7 @@ def run_laoer(
         if exhausted:
             if exhaustion == "쿼터손절" and shares > 0 and not waiting:
                 q = shares * quarter_cut_ratio
-                cash += q * px
-                shares -= q
-                cum_buy = max(cum_buy - q * avg, 0.0)
+                do_sell(q, px, dt)
                 res.events_log.append({"date": dt, "구분": "쿼터손절", "금액": q * px})
             else:
                 waiting = True
@@ -229,11 +245,7 @@ def run_laoer(
                 if px <= loc_buy_limit and budget > 0:
                     spent = budget
             if spent > 0 and px > 0:
-                q = spent / px
-                avg = (avg * shares + spent) / (shares + q) if (shares + q) > 0 else px
-                shares += q
-                cum_buy += spent
-                cash -= spent
+                do_buy(spent, px)
                 set_invested_max = max(set_invested_max, cum_buy)
 
         t_list.append(t_value())
@@ -246,7 +258,8 @@ def run_laoer(
     res.t_series = pd.Series(t_list, index=idx)
     res.cash_series = pd.Series(cash_list, index=idx)
     res.cashflows.append((idx[-1], res.final_value))
-    if shares > 0:  # 진행 중 세트도 로그에 남김
+    if shares > 0:  # 진행 중 세트 청산 가정 → 실현손익(세금용)
+        res.realized_gains.append((idx[-1], shares * close.iloc[-1] - shares * avg))
         sets_log.append({
             "세트": set_no, "시작일": set_start.date(), "종료일": None,
             "소요일": (idx[-1] - set_start).days, "최대투입액": round(set_invested_max, 2),

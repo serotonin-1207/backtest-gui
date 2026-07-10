@@ -70,6 +70,33 @@ SYNTH_BASE: dict[str, tuple[str, float, float]] = {
 
 _KR_INDEX = {"KS11", "KQ11", "KS200"}
 
+# 배당 제외 '가격지수' — ETF(배당 반영)와 섞어 비교하면 불리하게 보임
+PRICE_INDEX_TICKERS = {"^GSPC", "^IXIC", "^NDX", "^DJI", "^SOX", "KS11", "KQ11", "KS200"}
+
+# 가격지수의 대략적 연 배당수익률 (TR 근사 보정용, 참고값)
+INDEX_DIV_YIELD = {
+    "^GSPC": 0.018, "^IXIC": 0.009, "^NDX": 0.008, "^DJI": 0.020, "^SOX": 0.010,
+    "KS11": 0.018, "KQ11": 0.010, "KS200": 0.018,
+}
+
+# 국내 상장 ETF 티커 (매매차익 배당소득 15.4%)
+KR_ETF_TICKERS = {"122630", "233740", "069500", "133690"}
+
+
+def tax_category(ticker: str, currency: str) -> str:
+    """자산 유형별 세금 카테고리 판정.
+    us_overseas(미국 22%) / kr_etf(15.4%) / kr_stock(비과세) / none(지수)."""
+    t = ticker.strip().upper()
+    if currency == "USD":
+        return "us_overseas"
+    if t in _KR_INDEX:
+        return "none"
+    if t in KR_ETF_TICKERS:
+        return "kr_etf"
+    if re.fullmatch(r"\d{6}", t):
+        return "kr_stock"
+    return "none"
+
 
 def route_ticker(ticker: str, override: str | None = None) -> tuple[str, str]:
     """티커 → (source, currency). 6자리 숫자/한국지수=fdr·KRW, 그 외=yahoo·USD.
