@@ -1,9 +1,10 @@
+# 테마만 지정 — [server] 설정은 두지 않는다.
+# 로컬(streamlit run)에서는 기본값(headless=false)이라 브라우저가 자동으로 열리고,
+# 클라우드(Streamlit Cloud)에서는 플랫폼이 서버 모드를 알아서 설정한다.
+# headless=false 를 명시하면 클라우드에서 이메일 입력 대기에 걸려 서버가 안 뜬다.
 [theme]
 base = "dark"
 primaryColor = "#4FC3F7"
 backgroundColor = "#0E1420"
 secondaryBackgroundColor = "#1A2233"
 textColor = "#E8EAF0"
-
-[server]
-headless = false
