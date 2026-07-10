@@ -28,7 +28,7 @@ from .validation import validate_synthetic
 OUT_DIR = Path(__file__).resolve().parent.parent / "output" / "reports"
 
 # 배포 버전 — 변경 사항을 올릴 때마다 갱신. 화면에 표시되어 "최신 반영 여부"를 눈으로 확인할 수 있음.
-APP_VERSION = "1.1.0 (2026-07-10) — 세금·배당보정·환율효과·매매비용 추가"
+APP_VERSION = "1.2.0 (2026-07-10) — 적립식 현금관리 계산기(RP·조달이자·수수료) 추가"
 
 MONEY_COLS = ["총투입금", "추가불입", "중도인출", "순투입금", "최종순자산", "총이자",
               "세금", "세후최종순자산", "매매비용"]
@@ -178,6 +178,7 @@ def _rates() -> tuple[dict, str]:
 
 
 def render():
+    """진입점 — 공통 설정 + 모드 전환 (가격 백테스트 / 적립식 현금관리 계산기)."""
     st.set_page_config(page_title="세로토닌 백테스트", page_icon="📈", layout="wide",
                        initial_sidebar_state="expanded")
     st.markdown("""<style>
@@ -192,17 +193,29 @@ def render():
         }
     </style>""", unsafe_allow_html=True)
 
-    st.title("📈 세로토닌 백테스트")
-    st.caption("제작 serotonin(이은호) · 미국·한국 지수/ETF/개별종목 · 거치식/적립식/라오어 무한매수법 V2.2 · "
-               "⚠️ 백테스트 결과는 미래 수익을 보장하지 않습니다. 레버리지 상품은 변동성 감쇠 위험이 있습니다.")
-
-    # ================================================== 사이드바 (설정 패널)
     with st.sidebar:
         st.markdown("### 🧑‍💻 제작 serotonin(이은호)")
         st.markdown("📧 [serotonin.1207@gmail.com](mailto:serotonin.1207@gmail.com)")
         st.caption("문의 사항이나 수정 요청은 위 이메일로 보내주세요.")
         st.caption(f"🔖 버전 {APP_VERSION}")
         st.divider()
+        app_mode = st.radio("🧭 모드", ["📈 가격 백테스트", "💵 적립식 현금관리 계산기"], key="app_mode")
+        st.divider()
+
+    if app_mode.startswith("💵"):
+        from .cash_plan_page import render_cash_plan
+        render_cash_plan()
+        return
+    _render_backtest()
+
+
+def _render_backtest():
+    st.title("📈 세로토닌 백테스트")
+    st.caption("제작 serotonin(이은호) · 미국·한국 지수/ETF/개별종목 · 거치식/적립식/라오어 무한매수법 V2.2 · "
+               "⚠️ 백테스트 결과는 미래 수익을 보장하지 않습니다. 레버리지 상품은 변동성 감쇠 위험이 있습니다.")
+
+    # ================================================== 사이드바 (설정 패널)
+    with st.sidebar:
         st.header("⚙️ 설정")
 
         assets = st.multiselect("자산 선택", list(ASSET_PRESETS.keys()),
