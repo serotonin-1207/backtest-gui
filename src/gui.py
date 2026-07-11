@@ -28,7 +28,7 @@ from .validation import validate_synthetic
 OUT_DIR = Path(__file__).resolve().parent.parent / "output" / "reports"
 
 # 배포 버전 — 변경 사항을 올릴 때마다 갱신. 화면에 표시되어 "최신 반영 여부"를 눈으로 확인할 수 있음.
-APP_VERSION = "1.5.1 (2026-07-11) — 기본 자산 QQQ·QLD·TQQQ, 미국 지수 장기 누적수익률 차트 추가"
+APP_VERSION = "1.5.2 (2026-07-11) — 장기 누적수익률 차트를 지수·1배·2배·3배 동일 구성으로 보정"
 
 MONEY_COLS = ["총투입금", "추가불입", "중도인출", "순투입금", "최종순자산", "총이자",
               "세금", "세후최종순자산", "매매비용"]

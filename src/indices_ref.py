@@ -136,28 +136,33 @@ def _fig() -> go.Figure:
 
 
 def _fig_since_1990s() -> go.Figure:
-    """② 1995년~현재 — 주요 지수만 1995-01=100 재정규화 (레버리지는 당시 미존재)."""
-    from .charts import PALETTE
+    """② 1995년~현재 — ①과 동일한 지수·1배·2배·3배 구성을 재정규화."""
     df = _chart_data()
     base = "1995-01-01"
     fig = go.Figure()
-    for i, col in enumerate(_IDX_COLS):
-        if col not in df.columns:
-            continue
+    for col in df.columns:
         s = df[col].dropna()
         s = s.loc[s.index >= base]
         if s.empty or s.iloc[0] == 0:
             continue
         s = s / s.iloc[0] * 100.0
+        if "3x" in col or "3배" in col:
+            color, w, dash = "#ff6e6e", 2.4, None
+        elif "2x" in col or "2배" in col:
+            color, w, dash = "#ffb74d", 1.9, None
+        elif "1x" in col:
+            color, w, dash = "#4fc3f7", 1.5, None
+        else:
+            color, w, dash = "#9aa4bb", 1.1, "dot"
         fig.add_trace(go.Scatter(x=s.index, y=s.values, name=col,
-                                 line=dict(color=PALETTE[i % len(PALETTE)], width=1.6)))
-    fig.update_yaxes(type="log", title="누적 (1995-01=100, 로그스케일)")
+                                 line=dict(color=color, width=w, dash=dash)))
+    fig.update_yaxes(type="log", title="누적 (1995년 이후 첫 값=100, 로그스케일)")
     fig.update_layout(
-        title="② 1995년~현재(약 30년) — 주요 지수 1995-01=100 · 닷컴/금융위기/코로나/긴축 모두 포함",
+        title="② 1995년~현재 — ①과 동일한 지수·1배·2배·3배 구성",
         template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(20,24,35,1)",
         font=dict(family="Malgun Gothic, sans-serif", size=12),
-        legend=dict(orientation="h", y=1.05, font=dict(size=11)),
-        margin=dict(l=40, r=10, t=70, b=40), height=480, hovermode="x unified")
+        legend=dict(font=dict(size=10)),
+        margin=dict(l=40, r=10, t=60, b=40), height=520, hovermode="x unified")
     return fig
 
 
@@ -217,9 +222,10 @@ def _dlg_indices():
                "회색 점선=원지수, 파랑=1배, 주황=2배, 빨강=3배.")
     st.plotly_chart(_fig(), width="stretch")
     st.markdown("### 📈 누적 수익률 차트 (1990년대부터)")
-    st.markdown(f"**{_period_label(_IDX_COLS, '1995-01-01')}**")
-    st.caption("1995년 1월을 100으로 맞춘 주요 미국 지수 비교입니다. "
-               "닷컴 버블·글로벌 금융위기·코로나·2022년 긴축 구간을 모두 포함합니다.")
+    st.markdown(f"**{_period_label(start='1995-01-01')}**")
+    st.caption("1번과 동일한 원지수·1배·2배·3배 상품 전체 구성입니다. 각 시계열은 1995년 이후 "
+               "첫 유효값을 100으로 맞췄으며, 1995년 이후 상장한 ETF는 실제 상장 시점부터 표시됩니다. "
+               "회색 점선=원지수, 파랑=1배, 주황=2배, 빨강=3배.")
     st.plotly_chart(_fig_since_1990s(), width="stretch")
     st.html(SUMMARY_HTML)
     st.success("✅ **최종 결론** — ① 1배 수익 서열: 반도체 > 나스닥100 > S&P500·나스닥종합 > 다우·러셀 (장기 일관). "
