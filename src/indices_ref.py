@@ -106,7 +106,11 @@ def _chart_data() -> pd.DataFrame:
     return pd.read_csv(_DATA, index_col=0, parse_dates=True)
 
 
+_IDX_COLS = ["S&P500", "나스닥100", "나스닥종합", "다우존스", "러셀2000", "반도체(SOX)"]
+
+
 def _fig() -> go.Figure:
+    """① 상장 시점부터 — 각 상품 상장일=100 (레버리지 포함)."""
     df = _chart_data()
     fig = go.Figure()
     for col in df.columns:
@@ -123,12 +127,51 @@ def _fig() -> go.Figure:
                                  line=dict(color=color, width=w, dash=dash)))
     fig.update_yaxes(type="log", title="누적 (상장=100, 로그스케일)")
     fig.update_layout(
-        title="상장 시점부터 누적 수익률 (각 상품 시작=100, 로그)",
+        title="① 상장 시점부터 — 각 상품 상장일=100 (레버리지 포함, 상장일 제각각)",
         template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(20,24,35,1)",
         font=dict(family="Malgun Gothic, sans-serif", size=12),
         legend=dict(font=dict(size=10)), margin=dict(l=40, r=10, t=50, b=40), height=520,
         hovermode="x unified")
     return fig
+
+
+def _fig_since_1990s() -> go.Figure:
+    """② 1995년~현재 — 주요 지수만 1995-01=100 재정규화 (레버리지는 당시 미존재)."""
+    from .charts import PALETTE
+    df = _chart_data()
+    base = "1995-01-01"
+    fig = go.Figure()
+    for i, col in enumerate(_IDX_COLS):
+        if col not in df.columns:
+            continue
+        s = df[col].dropna()
+        s = s.loc[s.index >= base]
+        if s.empty or s.iloc[0] == 0:
+            continue
+        s = s / s.iloc[0] * 100.0
+        fig.add_trace(go.Scatter(x=s.index, y=s.values, name=col,
+                                 line=dict(color=PALETTE[i % len(PALETTE)], width=1.6)))
+    fig.update_yaxes(type="log", title="누적 (1995-01=100, 로그스케일)")
+    fig.update_layout(
+        title="② 1995년~현재(약 30년) — 주요 지수 1995-01=100 · 닷컴/금융위기/코로나/긴축 모두 포함",
+        template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(20,24,35,1)",
+        font=dict(family="Malgun Gothic, sans-serif", size=12),
+        legend=dict(orientation="h", y=1.05, font=dict(size=11)),
+        margin=dict(l=40, r=10, t=70, b=40), height=480, hovermode="x unified")
+    return fig
+
+
+def _period_label(columns: list[str] | None = None, start: str | None = None) -> str:
+    """차트에 실제로 표시되는 데이터의 시작·종료 기간."""
+    df = _chart_data()
+    if columns is not None:
+        df = df[[col for col in columns if col in df.columns]]
+    if start is not None:
+        df = df.loc[df.index >= start]
+    valid = df.dropna(how="all")
+    if valid.empty:
+        return "기간: 데이터 없음"
+    return f"기간: {valid.index.min():%Y-%m} ~ {valid.index.max():%Y-%m}"
 
 
 def _full_doc() -> bytes:
@@ -163,26 +206,32 @@ def _fig_perf_risk():
 
 @st.dialog("📊 미국 지수 & 레버리지 상품 총정리", width="large")
 def _dlg_indices():
-    st.plotly_chart(_fig_perf_risk(), use_container_width=True)
+    st.plotly_chart(_fig_perf_risk(), width="stretch")
     st.caption("👆 핵심 한 장: 3배 상품(TQQQ·SOXL)은 CAGR 40%대지만 **역대 낙폭 -82~-90%** — "
                "수익은 배수를 따라가고, 위험은 그보다 먼저 한계치에 도달합니다.")
     st.html(EXPLAIN)
     st.html(PRODUCTS_HTML)
     st.markdown("### 📈 누적 수익률 차트 (상장 시점부터)")
+    st.markdown(f"**{_period_label()}**")
     st.caption("각 상품을 상장 시점 100으로 맞춘 로그스케일 누적수익. 범례를 클릭하면 켜고 끌 수 있습니다. "
                "회색 점선=원지수, 파랑=1배, 주황=2배, 빨강=3배.")
-    st.plotly_chart(_fig(), use_container_width=True)
+    st.plotly_chart(_fig(), width="stretch")
+    st.markdown("### 📈 누적 수익률 차트 (1990년대부터)")
+    st.markdown(f"**{_period_label(_IDX_COLS, '1995-01-01')}**")
+    st.caption("1995년 1월을 100으로 맞춘 주요 미국 지수 비교입니다. "
+               "닷컴 버블·글로벌 금융위기·코로나·2022년 긴축 구간을 모두 포함합니다.")
+    st.plotly_chart(_fig_since_1990s(), width="stretch")
     st.html(SUMMARY_HTML)
     st.success("✅ **최종 결론** — ① 1배 수익 서열: 반도체 > 나스닥100 > S&P500·나스닥종합 > 다우·러셀 (장기 일관). "
                "② 3배는 '상승장 전용 부스터'일 뿐 — TQQQ 371배의 이면은 -82%, SOXL 320배의 이면은 **-90.5%**. "
                "③ 추천 사고방식: **몇 배짜리를 살까**가 아니라 **-80%를 감당할 금액이 얼마인가**부터 정하고, "
                "그 금액만 2~3배에, 나머지는 1배(QQQ·SPY)에. ④ 모든 배수 상품은 감쇠 때문에 '지수 회복=내 회복'이 아님을 기억하세요.")
     st.download_button("📥 이 문서를 HTML로 저장 (새 탭에서 열기·공유·인쇄)", _full_doc(),
-                       "us_indices_leverage.html", "text/html", use_container_width=True)
+                       "us_indices_leverage.html", "text/html", width="stretch")
 
 
 def render_indices_button(container=None):
     """사이드바 등에 버튼 배치 — 누르면 팝업."""
     tgt = container or st
-    if tgt.button("📊 미국 지수·레버리지 총정리 (차트)", use_container_width=True, key="btn_indices_ref"):
+    if tgt.button("📊 미국 지수·레버리지 총정리 (차트)", width="stretch", key="btn_indices_ref"):
         _dlg_indices()

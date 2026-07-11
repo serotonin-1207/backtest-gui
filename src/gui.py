@@ -28,7 +28,7 @@ from .validation import validate_synthetic
 OUT_DIR = Path(__file__).resolve().parent.parent / "output" / "reports"
 
 # 배포 버전 — 변경 사항을 올릴 때마다 갱신. 화면에 표시되어 "최신 반영 여부"를 눈으로 확인할 수 있음.
-APP_VERSION = "1.5.0 (2026-07-11) — 전 팝업 차트·최종결론 보강, 폭락표 연도 추가, 검색 기능, 무회복일 정밀화"
+APP_VERSION = "1.5.1 (2026-07-11) — 기본 자산 QQQ·QLD·TQQQ, 미국 지수 장기 누적수익률 차트 추가"
 
 MONEY_COLS = ["총투입금", "추가불입", "중도인출", "순투입금", "최종순자산", "총이자",
               "세금", "세후최종순자산", "매매비용"]
@@ -365,8 +365,9 @@ def _render_backtest():
     with st.sidebar:
         st.header("⚙️ 설정")
 
+        default_assets = ["QQQ", "QLD", "TQQQ"]
         assets = st.multiselect("자산 선택", list(ASSET_PRESETS.keys()),
-                                default=["나스닥100", "TQQQ"], help=HELP["자산"])
+                                default=default_assets, help=HELP["자산"])
 
         if "custom_tickers" not in st.session_state:
             st.session_state.custom_tickers = []
