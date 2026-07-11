@@ -30,7 +30,7 @@ from .validation import validate_intraday_ohlc, validate_synthetic
 OUT_DIR = Path(__file__).resolve().parent.parent / "output" / "reports"
 
 # 배포 버전 — 변경 사항을 올릴 때마다 갱신. 화면에 표시되어 "최신 반영 여부"를 눈으로 확인할 수 있음.
-APP_VERSION = "1.9.1 (2026-07-12) — 루틴 추천 버그 수정: 경량 라오어 소진 대기·현금 상한, 음수 점수 신뢰도 역전, 위험한도 필터 후 크래시"
+APP_VERSION = "1.10.0 (2026-07-12) — 의견 게시판 모드 추가(Google Sheets 저장, 닉네임 필수·이메일 선택, 링크·연속등록 차단)"
 
 MONEY_COLS = ["총투입금", "추가불입", "중도인출", "순투입금", "최종순자산", "총이자",
               "세금", "세후최종순자산", "매매비용"]
@@ -275,7 +275,7 @@ HELP = {
              "전반전은 절반 평단 LOC + 절반 오프셋 LOC, 후반전은 오프셋 LOC 하나. 매일 1/4 LOC + 3/4 지정가 매도.",
     "세금비용": "세금 반영(미국 22%/국내ETF 15.4%/국내주식 비과세), 지수 총수익 보정, 환율 효과(언헤지 일별환율), 매매 수수료·슬리피지(bp). "
                "모두 기본 OFF = 세전·비용0. 켜면 세전/세후를 나란히 비교합니다.",
-    "모드": "📈 가격 백테스트: 자산 가격 기준 수익 시뮬레이션. 💵 적립식 현금관리 계산기: 대기자금 RP운용·조달이자·수수료의 순효과 계산.",
+    "모드": "📈 가격 백테스트: 자산 가격 기준 수익 시뮬레이션. 💵 적립식 현금관리 계산기: 대기자금 RP운용·조달이자·수수료의 순효과 계산. 💬 의견 게시판: 사용자 의견·버그·개선 아이디어 수렴.",
     "기준화폐": "투자금을 어느 통화로 입력하는지. 예: KRW 선택 + 10,000 입력 = 1만원 투자. "
                "자산의 거래 통화가 다르면(예: TQQQ=달러) 현재 환율로 환산한 금액이 투입됨.",
     "표시통화": "결과표·KPI의 금액을 선택한 통화로 현재 환율 기준 단순 환산해 표시. 기본값은 투자금 기준 화폐. "
@@ -384,7 +384,8 @@ def render():
         st.divider()
         app_mode = st.radio(
             "🧭 모드",
-            ["📈 가격 백테스트", "🎯 최적의 투자 루틴 추천", "💵 적립식 현금관리 계산기"],
+            ["📈 가격 백테스트", "🎯 최적의 투자 루틴 추천", "💵 적립식 현금관리 계산기",
+             "💬 의견 게시판"],
             key="app_mode",
         )
         st.divider()
@@ -401,6 +402,10 @@ def render():
     if app_mode.startswith("🎯"):
         from .routine_optimizer_page import render_routine_optimizer
         render_routine_optimizer()
+        return
+    if app_mode.startswith("💬"):
+        from .board_page import render_board
+        render_board()
         return
     _render_backtest()
 

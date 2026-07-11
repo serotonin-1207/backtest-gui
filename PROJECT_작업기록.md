@@ -40,6 +40,8 @@ backtest_gui/
    ├─ validation.py         # 합성 vs 실제 ETF 검증(상관/추적오차)
    ├─ routine_optimizer.py  # 롤링 시작일 기반 투자주기·기간·자산·방식 최적화
    ├─ routine_optimizer_page.py # 최적의 투자 루틴 추천 화면
+   ├─ board.py              # 의견 게시판 백엔드(Google Sheets, gspread). is_configured/validate/add_post/fetch_posts
+   ├─ board_page.py         # 의견 게시판 화면(입력폼+목록, secrets 미설정 시 설정안내)
    ├─ charts.py             # Plotly 차트 (PALETTE 고정 색)
    ├─ excel_export.py       # xlsxwriter 네이티브 차트 포함 Excel
    ├─ ai_report.py          # ai_analysis_request.md 생성
@@ -113,6 +115,7 @@ backtest_gui/
 | 1.8.0 | 최적의 투자 루틴 추천: QQQ·QLD·TQQQ, 5개 적립주기, 1~15년, 4개 투자방식 롤링 검증·위험한도·균형/수익/방어 점수, 경량 라오어·빠른 XIRR |
 | 1.9.0 | 사이드바 빠른 기간 버튼(1/5/10/15/20/25/30년, 현재 기준), 주요 폭락 시작일 버튼(닷컴/금융위기/코로나/2022긴축/**트럼프관세** → 최고점~오늘), 폭락 참고표·막대차트에 트럼프 관세(2025-02→04) 추가. 날짜는 session_state(bt_start_date/bt_end_date) + on_click 콜백 제어 |
 | 1.9.1 | 루틴 추천 버그 수정 3건(§8 ⑨~⑪): 경량 라오어 소진 대기 미유지·매수 예산 현금 상한 누락(변동장 최대 ±3%p → 전체 엔진과 1e-9 일치), 음수 점수 신뢰도 계수 역전, 위험한도 필터로 적립식 전멸 시 dimension_winners 크래시. 변동 경로 회귀 테스트 3개 추가(총 27개) |
+| 1.10.0 | 💬 의견 게시판 모드 추가(§12). Google Sheets 저장(휘발성 클라우드 FS 우회), 닉네임 필수·이메일 선택(공개 목록엔 이메일 미표시), 링크(URL) 차단·20초 연속등록 쿨다운·수식주입(RAW) 방어·시트 '상태=숨김' 수동검열. secrets 미설정 시 설정안내 표시(앱 안 죽음). board.py/board_page.py, requirements에 gspread·google-auth 추가(pandas/numpy 무관) |
 
 ## 5. 실측 데이터 (문서·팝업에 사용, 하드코딩된 참조값)
 
@@ -217,7 +220,39 @@ backtest_gui/
 - 핵심 코드만 빠르게 파악하려면 읽는 순서: PROJECT_작업기록.md → src/gui.py(render 흐름) → 필요한 엔진(backtest_engine/laoer_strategy/cash_plan/routine_optimizer)
 
 ### 11-6. 현재 상태 요약 (2026-07-12 기준)
-- 최신 버전 **v1.9.0**, 모든 커밋 push 완료(작업트리 깨끗), 웹앱 정상.
-- 3개 모드: 📈 가격 백테스트 / 🎯 최적의 투자 루틴 추천 / 💵 적립식 현금관리 계산기.
-- 최근 작업: 사이드바 빠른 기간·폭락 시작일 버튼, 트럼프 관세 데이터 추가.
+- 최신 버전 **v1.10.0**, 모든 커밋 push 완료(작업트리 깨끗), 웹앱 정상.
+- 4개 모드: 📈 가격 백테스트 / 🎯 최적의 투자 루틴 추천 / 💵 적립식 현금관리 계산기 / 💬 의견 게시판.
+- 최근 작업: 루틴 추천 버그 수정(v1.9.1), 의견 게시판 추가(v1.10.0).
 - 바로 이어서 할 만한 것: §9 로드맵 (진입시점 민감도, 추세필터, 포터블판 재패키징 등).
+
+---
+
+## 12. 의견 게시판 설정 (운영자 1회 작업) ★게시판 쓰려면 필수
+
+게시판은 코드로만 배포됐고, **Google Sheets 연결 정보(secrets)를 넣기 전까지는 "설정 안내" 화면만 표시**된다(앱은 정상 동작). 아래를 1회 설정하면 활성화된다.
+
+1. **빈 구글 시트 생성** → 브라우저 주소창 URL 복사 (헤더는 앱이 자동 생성).
+2. **Google Cloud Console** → 프로젝트 생성 → **Google Sheets API 사용 설정** → **서비스계정** 만들기 → 키 → **JSON 키 생성·다운로드**.
+3. 다운로드한 JSON 안의 `client_email`(`...@....iam.gserviceaccount.com`)을 **1번 시트에 '편집자'로 공유**.
+4. **Streamlit Cloud → Manage app → Settings → Secrets** 에 아래 형식으로 붙여넣기(JSON 값들을 그대로 옮김):
+   ```toml
+   [gcp_service_account]
+   type = "service_account"
+   project_id = "..."
+   private_key_id = "..."
+   private_key = "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+   client_email = "...@....iam.gserviceaccount.com"
+   client_id = "..."
+   token_uri = "https://oauth2.googleapis.com/token"
+
+   [board]
+   sheet_url = "https://docs.google.com/spreadsheets/d/..../edit"
+   ```
+   - `private_key`의 줄바꿈은 `\n` 문자열 그대로 둔다(따옴표 안).
+5. 저장 후 앱 자동 재시작 → 게시판 활성화.
+
+**운영·정책**
+- 시트 열: 작성시각·닉네임·이메일·의견·상태. **이메일은 시트에만 저장**되고 공개 목록엔 표시 안 함(최소 개인정보).
+- **검열**: 부적절한 글은 시트의 그 행 '상태' 칸에 `숨김` 입력 → 30초 캐시 후 목록에서 사라짐(글 삭제 대신 흔적 보존 가능).
+- **스팸 방어**: 링크(URL) 포함 글 차단, 같은 세션 20초 쿨다운, 수식주입(=,+,@) 방어(RAW 저장). 로그인 없는 공개 게시판이라 완벽하진 않음 — 필요 시 승인제(상태='대기'만 노출)로 강화 가능.
+- **관련 코드**: `src/board.py`(백엔드), `src/board_page.py`(화면), `requirements.txt`(gspread·google-auth).
