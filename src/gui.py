@@ -30,7 +30,7 @@ from .validation import validate_intraday_ohlc, validate_synthetic
 OUT_DIR = Path(__file__).resolve().parent.parent / "output" / "reports"
 
 # 배포 버전 — 변경 사항을 올릴 때마다 갱신. 화면에 표시되어 "최신 반영 여부"를 눈으로 확인할 수 있음.
-APP_VERSION = "1.10.0 (2026-07-12) — 의견 게시판 모드 추가(Google Sheets 저장, 닉네임 필수·이메일 선택, 링크·연속등록 차단)"
+APP_VERSION = "1.10.0 (2026-07-12) — 의견 게시판 모드 추가(구글 폼 입력+공개 시트 목록, 서비스 계정 불필요, 닉네임 필수·이메일 비공개)"
 
 MONEY_COLS = ["총투입금", "추가불입", "중도인출", "순투입금", "최종순자산", "총이자",
               "세금", "세후최종순자산", "매매비용"]

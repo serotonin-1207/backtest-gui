@@ -115,7 +115,7 @@ backtest_gui/
 | 1.8.0 | 최적의 투자 루틴 추천: QQQ·QLD·TQQQ, 5개 적립주기, 1~15년, 4개 투자방식 롤링 검증·위험한도·균형/수익/방어 점수, 경량 라오어·빠른 XIRR |
 | 1.9.0 | 사이드바 빠른 기간 버튼(1/5/10/15/20/25/30년, 현재 기준), 주요 폭락 시작일 버튼(닷컴/금융위기/코로나/2022긴축/**트럼프관세** → 최고점~오늘), 폭락 참고표·막대차트에 트럼프 관세(2025-02→04) 추가. 날짜는 session_state(bt_start_date/bt_end_date) + on_click 콜백 제어 |
 | 1.9.1 | 루틴 추천 버그 수정 3건(§8 ⑨~⑪): 경량 라오어 소진 대기 미유지·매수 예산 현금 상한 누락(변동장 최대 ±3%p → 전체 엔진과 1e-9 일치), 음수 점수 신뢰도 계수 역전, 위험한도 필터로 적립식 전멸 시 dimension_winners 크래시. 변동 경로 회귀 테스트 3개 추가(총 27개) |
-| 1.10.0 | 💬 의견 게시판 모드 추가(§12). Google Sheets 저장(휘발성 클라우드 FS 우회), 닉네임 필수·이메일 선택(공개 목록엔 이메일 미표시), 링크(URL) 차단·20초 연속등록 쿨다운·수식주입(RAW) 방어·시트 '상태=숨김' 수동검열. secrets 미설정 시 설정안내 표시(앱 안 죽음). board.py/board_page.py, requirements에 gspread·google-auth 추가(pandas/numpy 무관) |
+| 1.10.0 | 💬 의견 게시판 모드 추가(§12). **구글 폼(입력 임베드) + 공개 시트 CSV(목록)** 방식 — 서비스 계정·JSON키·구글클라우드 불필요(조직 정책 iam.disableServiceAccountKeyCreation 우회). 닉네임 필수·이메일 선택이되 이메일은 '공개' 탭에서 제외해 목록/CSV 미노출(운영자 원본시트만). 스팸방어는 구글 폼이 처리, 목록 60초 캐시. secrets 미설정 시 설정안내 표시(앱 안 죽음). board.py/board_page.py. ⚠️초기엔 gspread 방식으로 만들었다가 조직 정책 벽에 막혀 폼 방식으로 전환함 |
 
 ## 5. 실측 데이터 (문서·팝업에 사용, 하드코딩된 참조값)
 
@@ -229,30 +229,25 @@ backtest_gui/
 
 ## 12. 의견 게시판 설정 (운영자 1회 작업) ★게시판 쓰려면 필수
 
-게시판은 코드로만 배포됐고, **Google Sheets 연결 정보(secrets)를 넣기 전까지는 "설정 안내" 화면만 표시**된다(앱은 정상 동작). 아래를 1회 설정하면 활성화된다.
+게시판은 코드로만 배포됐고, **구글 폼/시트 주소(secrets)를 넣기 전까지는 "설정 안내" 화면만 표시**된다(앱은 정상 동작). **구글 클라우드·서비스 계정은 필요 없다**(조직 정책으로 서비스 계정 키 생성이 막혀 폼 방식으로 전환함). 아래를 1회 설정하면 활성화된다.
 
-1. **빈 구글 시트 생성** → 브라우저 주소창 URL 복사 (헤더는 앱이 자동 생성).
-2. **Google Cloud Console** → 프로젝트 생성 → **Google Sheets API 사용 설정** → **서비스계정** 만들기 → 키 → **JSON 키 생성·다운로드**.
-3. 다운로드한 JSON 안의 `client_email`(`...@....iam.gserviceaccount.com`)을 **1번 시트에 '편집자'로 공유**.
-4. **Streamlit Cloud → Manage app → Settings → Secrets** 에 아래 형식으로 붙여넣기(JSON 값들을 그대로 옮김):
+1. **구글 폼 생성** — [forms.google.com](https://forms.google.com) → 빈 양식. 질문 3개를 **이 순서로**: `닉네임`(단답·필수), `이메일`(단답·선택), `의견`(장문·필수).
+2. **응답을 시트로 연결** — 폼 **응답** 탭 → **시트로 연결** → 새 스프레드시트.
+3. **'공개' 탭 생성** — 시트 아래 `＋`로 새 탭(이름 `공개`) → A1에 `=QUERY('설문지 응답 시트1'!A:D, "SELECT A,B,D", 1)` (응답 탭 실제 이름으로 교체). A=타임스탬프·B=닉네임·D=의견만, **C=이메일 제외**.
+4. **'공개' 탭을 웹에 게시** — 시트 **파일 → 공유 → 웹에 게시** → 대상 `공개` 탭, 형식 `.csv` → 게시 → **CSV 주소 복사**.
+5. **폼 임베드 주소 복사** — 폼 **보내기 → `< >`(삽입)** → `src="...viewform?embedded=true"` 복사.
+6. **Streamlit Cloud → Manage app → Settings → Secrets** 에 붙여넣기:
    ```toml
-   [gcp_service_account]
-   type = "service_account"
-   project_id = "..."
-   private_key_id = "..."
-   private_key = "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
-   client_email = "...@....iam.gserviceaccount.com"
-   client_id = "..."
-   token_uri = "https://oauth2.googleapis.com/token"
-
    [board]
-   sheet_url = "https://docs.google.com/spreadsheets/d/..../edit"
+   form_embed_url = "https://docs.google.com/forms/d/e/FORM_ID/viewform?embedded=true"
+   csv_url = "https://docs.google.com/spreadsheets/d/e/.../pub?gid=0&single=true&output=csv"
    ```
-   - `private_key`의 줄바꿈은 `\n` 문자열 그대로 둔다(따옴표 안).
-5. 저장 후 앱 자동 재시작 → 게시판 활성화.
+7. 저장 → 앱 자동 재시작 → 게시판 활성화.
 
 **운영·정책**
-- 시트 열: 작성시각·닉네임·이메일·의견·상태. **이메일은 시트에만 저장**되고 공개 목록엔 표시 안 함(최소 개인정보).
-- **검열**: 부적절한 글은 시트의 그 행 '상태' 칸에 `숨김` 입력 → 30초 캐시 후 목록에서 사라짐(글 삭제 대신 흔적 보존 가능).
-- **스팸 방어**: 링크(URL) 포함 글 차단, 같은 세션 20초 쿨다운, 수식주입(=,+,@) 방어(RAW 저장). 로그인 없는 공개 게시판이라 완벽하진 않음 — 필요 시 승인제(상태='대기'만 노출)로 강화 가능.
-- **관련 코드**: `src/board.py`(백엔드), `src/board_page.py`(화면), `requirements.txt`(gspread·google-auth).
+- **이메일 비공개**: '공개' 탭(QUERY SELECT A,B,D)에서 이메일 열을 뺐으므로 목록/CSV 어디에도 안 나옴. 원본 응답 시트에서 운영자만 확인.
+- **검열**: 부적절한 응답은 원본 응답 시트에서 해당 행 삭제(공개 탭 QUERY가 자동 반영). 최대 60초 캐시 후 목록에서 사라짐.
+- **스팸 방어**: 입력이 구글 폼이라 구글의 기본 스팸/봇 방어를 그대로 이용. 필요 시 폼 설정에서 '로그인 필요' 또는 reCAPTCHA 강화 가능.
+- **지연**: 새 글은 시트 반영 + 공개 CSV 캐시 때문에 목록에 뜨기까지 몇 분 걸릴 수 있음(정상). 폼 제출 자체는 즉시.
+- **관련 코드**: `src/board.py`(주소 읽기·CSV 파싱), `src/board_page.py`(폼 임베드·목록). 추가 파이썬 패키지 없음.
+- (참고) 서비스 계정(gspread) 방식으로도 구현 가능하나, 이 계정의 조직 정책 `iam.disableServiceAccountKeyCreation` 때문에 JSON 키 생성이 차단되어 폼 방식을 채택함.

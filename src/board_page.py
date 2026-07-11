@@ -1,41 +1,50 @@
 # -*- coding: utf-8 -*-
-"""의견 게시판 Streamlit 화면 (Google Sheets 백엔드)."""
+"""의견 게시판 화면 — 구글 폼 임베드(입력) + 공개 시트 CSV(목록)."""
 from __future__ import annotations
 
-import time
-
 import streamlit as st
+import streamlit.components.v1 as components
 
 from . import board
-
-_COOLDOWN_SEC = 20  # 연속 등록 방지(초)
 
 
 def _setup_notice() -> None:
     st.info(
-        "게시판이 아직 연결되지 않았습니다. 운영자 설정이 필요합니다.\n\n"
-        "**설정 방법 (운영자용)**\n"
-        "1. Google Sheets에서 빈 시트를 하나 만들고 주소(URL)를 복사합니다.\n"
-        "2. Google Cloud에서 **서비스계정**을 만들고 JSON 키를 내려받습니다.\n"
-        "3. 시트를 그 서비스계정 이메일(`...@....iam.gserviceaccount.com`)에 **편집 권한**으로 공유합니다.\n"
-        "4. Streamlit Cloud → **Manage app → Settings → Secrets** 에 아래를 붙여넣습니다.\n"
+        "게시판이 아직 연결되지 않았습니다. 운영자 설정이 필요합니다 "
+        "(구글 클라우드·서비스 계정은 **필요 없습니다**)."
+    )
+    st.markdown(
+        "**설정 방법 (운영자용, 약 10분·전부 무료)**\n\n"
+        "1. **구글 폼 만들기** — [forms.google.com](https://forms.google.com) → 빈 양식. 질문 3개를 "
+        "**이 순서**로 추가합니다.\n"
+        "   - `닉네임` (단답형, **필수**)\n"
+        "   - `이메일` (단답형, 선택)\n"
+        "   - `의견` (장문형, **필수**)\n"
+        "2. **응답을 시트로 연결** — 폼 상단 **응답** 탭 → **시트로 연결** → 새 스프레드시트 생성.\n"
+        "3. **'공개' 탭 만들기** — 그 시트 아래 **`＋`** 로 새 탭을 만들고 이름을 `공개` 로. A1 칸에 아래를 붙여넣습니다."
     )
     st.code(
-        '[gcp_service_account]\n'
-        'type = "service_account"\n'
-        'project_id = "..."\n'
-        'private_key_id = "..."\n'
-        'private_key = "-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n"\n'
-        'client_email = "...@....iam.gserviceaccount.com"\n'
-        'client_id = "..."\n'
-        'token_uri = "https://oauth2.googleapis.com/token"\n\n'
+        '=QUERY(\'설문지 응답 시트1\'!A:D, "SELECT A,B,D", 1)',
+        language="text",
+    )
+    st.markdown(
+        "   - `설문지 응답 시트1` 은 **실제 응답 탭 이름**으로 바꾸세요(시트 아래에 표시됨).\n"
+        "   - A=타임스탬프, B=닉네임, D=의견만 가져오고 **C(이메일)는 제외**됩니다.\n"
+        "4. **'공개' 탭을 웹에 게시** — 시트 메뉴 **파일 → 공유 → 웹에 게시** → 게시 대상을 **`공개` 탭**, "
+        "형식을 **쉼표로 구분된 값(.csv)** 으로 선택 → **게시** → 나오는 **주소(CSV)를 복사**.\n"
+        "5. **폼 임베드 주소 복사** — 폼 우측 상단 **보내기** → **`< >`(삽입)** 탭 → iframe 코드의 "
+        "`src=\"...\"` 안의 주소(`.../viewform?embedded=true`)를 복사.\n"
+        "6. **Streamlit Cloud → Manage app → Settings → Secrets** 에 아래를 붙여넣기:"
+    )
+    st.code(
         '[board]\n'
-        'sheet_url = "https://docs.google.com/spreadsheets/d/..../edit"',
+        'form_embed_url = "https://docs.google.com/forms/d/e/FORM_ID/viewform?embedded=true"\n'
+        'csv_url = "https://docs.google.com/spreadsheets/d/e/.../pub?gid=0&single=true&output=csv"',
         language="toml",
     )
     st.caption(
-        "JSON 키의 각 항목을 위 형식에 그대로 옮기면 됩니다. private_key의 줄바꿈은 `\\n` 그대로 둡니다. "
-        "시트 첫 행 헤더(작성시각·닉네임·이메일·의견·상태)는 자동으로 만들어집니다."
+        "저장하면 앱이 자동 재시작되며 게시판이 켜집니다. 이메일은 '공개' 탭에 없으므로 "
+        "목록·CSV 어디에도 노출되지 않고, 원본 응답 시트에서 운영자만 볼 수 있습니다."
     )
 
 
@@ -50,44 +59,34 @@ def render_board() -> None:
         _setup_notice()
         return
 
-    with st.form("board_form", clear_on_submit=True):
-        c1, c2 = st.columns(2)
-        nickname = c1.text_input(
-            "닉네임 *", max_chars=board.MAX_NICK, placeholder="예: 투자하는너구리"
-        )
-        email = c2.text_input(
-            "이메일 (선택)", max_chars=board.MAX_EMAIL,
-            placeholder="답변 받을 이메일 (비워도 됩니다)",
-        )
-        message = st.text_area(
-            "의견 *", max_chars=board.MAX_MSG, height=120,
-            placeholder="자유롭게 남겨주세요. (링크·URL은 스팸 방지를 위해 제한됩니다)",
-        )
-        submitted = st.form_submit_button("의견 남기기", type="primary", width="stretch")
-
-    if submitted:
-        elapsed = time.time() - st.session_state.get("board_last_submit", 0.0)
-        if elapsed < _COOLDOWN_SEC:
-            st.warning(f"잠시 후 다시 시도해주세요. ({int(_COOLDOWN_SEC - elapsed)}초 후)")
-        else:
-            ok, msg = board.add_post(nickname, message, email)
-            if ok:
-                st.session_state["board_last_submit"] = time.time()
-                st.success(msg)
-            else:
-                st.error(msg)
+    st.subheader("✍️ 의견 남기기")
+    components.iframe(board.form_embed_url(), height=760, scrolling=True)
 
     st.divider()
-    try:
-        posts = board.fetch_posts()
-    except Exception:
-        st.error("게시글을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.")
+    st.subheader("💬 최근 의견")
+    url = board.csv_url()
+    if not url:
+        st.caption("목록 표시가 아직 설정되지 않았습니다(공개 CSV 주소 미설정). 입력은 위 폼으로 가능합니다.")
         return
 
-    st.subheader(f"최근 의견 ({len(posts)})")
-    if posts.empty:
-        st.caption("아직 등록된 의견이 없습니다. 첫 의견을 남겨보세요!")
+    try:
+        posts = board.fetch_posts(url)
+    except Exception:
+        st.caption(
+            "목록을 불러오지 못했습니다. 방금 게시하셨다면 반영까지 몇 분 걸릴 수 있습니다. "
+            "잠시 후 새로고침 해주세요."
+        )
         return
+
+    if posts.empty:
+        st.caption("아직 등록된 의견이 없습니다. 위 폼으로 첫 의견을 남겨보세요!")
+        return
+
+    top = st.columns([3, 1])
+    top[0].caption(f"총 {len(posts)}개 · 새 글은 반영까지 몇 분 걸릴 수 있습니다.")
+    if top[1].button("🔄 새로고침", width="stretch"):
+        board.fetch_posts.clear()
+        st.rerun()
 
     for _, row in posts.head(100).iterrows():
         with st.container(border=True):
