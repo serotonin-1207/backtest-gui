@@ -159,6 +159,7 @@ def _laoer_result(
     set_principal = 1.0
     one_buy = set_principal / splits
     cash, shares, avg, cum_buy = 1.0, 0.0, 0.0, 0.0
+    waiting = False
     equities = []
     buy_count = 0
 
@@ -187,6 +188,7 @@ def _laoer_result(
 
     for px, hi in zip(prices, highs):
         if shares <= 1e-12 and cum_buy <= 1e-12:
+            waiting = False
             do_buy(one_buy, px)
             equities.append(cash + shares * px)
             continue
@@ -206,15 +208,18 @@ def _laoer_result(
                 set_principal = cash
             one_buy = set_principal / splits
             shares, avg, cum_buy = 0.0, 0.0, 0.0
+            waiting = False
             equities.append(cash)
             continue
 
-        exhausted = cum_buy >= set_principal - one_buy * 0.9
-        if not exhausted:
+        # 전체 엔진과 동일하게, 소진되면 세트가 끝날 때까지 매수를 멈춘다(대기).
+        if cum_buy >= set_principal - one_buy * 0.9:
+            waiting = True
+        if not waiting:
             t = t_value()
             offset = (15.0 - 1.5 * t) / 100.0 if version == "V3.0" else (target - t / 2) / 100.0
             remaining = max(set_principal - cum_buy, 0.0)
-            budget = min(one_buy, remaining)
+            budget = min(one_buy, remaining, cash)
             spend = 0.0
             if t < 20.0:
                 half = budget / 2
@@ -250,7 +255,9 @@ def _score(row: dict, objective: str) -> float:
         raw = 0.30 * med + 0.15 * p10 + 0.30 * med_dd + 0.20 * worst_dd + 0.05 * (positive - 0.5)
     else:
         raw = 0.45 * med + 0.25 * p10 + 0.15 * med_dd + 0.10 * worst_dd + 0.05 * (positive - 0.5)
-    return float(raw * (0.85 + 0.15 * reliability))
+    # 검증구간이 적을수록 항상 불리해야 한다: 양수는 축소, 음수는 확대.
+    factor = 0.85 + 0.15 * reliability
+    return float(raw * factor if raw >= 0 else raw / factor)
 
 
 def optimize_routines(
@@ -352,6 +359,9 @@ def dimension_winners(results: pd.DataFrame) -> dict[str, pd.Series]:
     frequency_pool = results[
         results["투자방식"].isin(["적립식", "거치식 후 적립식"])
     ]
+    if frequency_pool.empty:
+        # 위험한도 필터로 적립식 계열이 전부 제외된 경우 전체 후보의 주기로 대신한다.
+        frequency_pool = results
     return {
         "전체": results.iloc[0],
         "투자주기": representative(frequency_pool, "투자주기"),

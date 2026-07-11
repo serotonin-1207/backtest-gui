@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 
+import numpy as np
 import pandas as pd
 
 from src.backtest_engine import BacktestResult, run_backtest
@@ -20,6 +21,7 @@ from src.routine_optimizer import (
     _contribution_result,
     _fast_xirr,
     _laoer_result,
+    _score,
     dimension_winners,
     optimize_routines,
 )
@@ -89,6 +91,68 @@ class CoreRegressionTests(unittest.TestCase):
         )
         self.assertAlmostEqual(fast["배수"], full.final_value, places=9)
         self.assertAlmostEqual(fast["MDD"], mdd(full.equity), places=9)
+
+    def test_fast_laoer_matches_full_engine_on_volatile_paths(self):
+        # 상승만으로는 소진(대기)·현금 부족 경로가 실행되지 않으므로
+        # 폭락 후 회복·약세장·고변동 랜덤 경로에서 전체 엔진과 일치를 확인한다.
+        rng = np.random.default_rng(42)
+        paths = [
+            np.concatenate(
+                [np.full(60, 0.001), np.full(120, -0.006), np.full(320, 0.004)]
+            ),
+            np.full(400, -0.002) + rng.normal(0, 0.01, 400),
+            rng.normal(0.0005, 0.02, 600),
+            rng.normal(0.0005, 0.02, 600),
+        ]
+        for returns in paths:
+            idx = pd.bdate_range("2020-01-02", periods=len(returns))
+            close = 100.0 * np.cumprod(1.0 + returns)
+            high = close * (1.0 + np.abs(rng.normal(0.004, 0.003, len(close))))
+            ohlc = pd.DataFrame({"Close": close, "High": high}, index=idx)
+            for version, splits, target in (("V2.2", 40, 10.0), ("V3.0", 20, 15.0)):
+                fast = _laoer_result(ohlc, 5.0, version, 20.0)
+                full = run_laoer(
+                    ohlc,
+                    "full",
+                    1.0,
+                    fee_bp=5.0,
+                    fill_buffer_bp=20.0,
+                    version=version,
+                    splits=splits,
+                    target_pct=target,
+                )
+                self.assertAlmostEqual(fast["배수"], full.final_value, places=9)
+                self.assertAlmostEqual(fast["MDD"], mdd(full.equity), places=9)
+
+    def test_score_penalizes_fewer_windows_even_when_negative(self):
+        row = {
+            "중앙연수익률": -0.10,
+            "하위10%연수익률": -0.30,
+            "중앙MDD": -0.40,
+            "최악MDD": -0.60,
+            "수익구간비율": 0.3,
+        }
+        for objective in ("균형", "수익 우선", "방어 우선"):
+            few = _score({**row, "검증구간수": 5}, objective)
+            many = _score({**row, "검증구간수": 20}, objective)
+            self.assertLess(few, many)
+
+    def test_dimension_winners_survive_without_dca_candidates(self):
+        base = {
+            "투자기간": "5년", "기간(년)": 5, "검증구간수": 8,
+            "중앙연수익률": 0.2, "하위10%연수익률": 0.05, "중앙MDD": -0.3,
+            "최악MDD": -0.5, "수익구간비율": 0.9, "중앙최종배수": 2.0,
+            "평균투자횟수": 10.0,
+        }
+        results = pd.DataFrame([
+            {**base, "자산": "TQQQ", "투자방식": "라오어 무한매수법",
+             "투자주기": "매일 주문", "종합점수": 0.15},
+            {**base, "자산": "QQQ", "투자방식": "거치식",
+             "투자주기": "1회", "종합점수": 0.10},
+        ])
+        winners = dimension_winners(results)
+        self.assertEqual(winners["전체"]["투자방식"], "라오어 무한매수법")
+        self.assertIn("투자주기", winners)
 
     def test_metric_closed_forms(self):
         idx = pd.to_datetime(["2024-01-01", "2024-12-31"])
