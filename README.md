@@ -79,15 +79,28 @@ streamlit run main.py
 - 티커별 `data/cache/{ticker}.parquet` + `_meta.json` — **마지막 저장일 이후만 증분 다운로드**
 - 주말이면 API 호출 생략, 수정주가 소급 변경 감지 시 해당 티커만 전체 재다운로드(로그 기록)
 - API 실패 시 캐시로 계속 진행 + "최신 아님" 경고, 저장은 원자적(임시파일→교체)
+- 미국 지수·레버리지 참조 CSV는 `scripts/update_index_reference.py`로 재생성하며 GitHub Actions가 매월 갱신·검증
+- 참조 데이터 출처·방법·한계는 `data/reference_metadata.json`에 기록
 
-## 6. 폴더 구조 / 확장 로드맵
+## 6. 자동 검증
+
+```bash
+python -m unittest discover -s tests -v
+python scripts/validate_reference_data.py
+```
+
+GitHub Actions가 푸시·PR마다 회귀 테스트와 전체 컴파일을 실행합니다. 팝업의 최근 분봉 검증은
+5분봉을 일봉으로 재집계해 종가·고가·저가 차이를 확인하며, 장기 분봉 미제공 구간은
+`체결 안전마진(bp)`과 슬리피지로 보수적으로 검증합니다.
+
+## 7. 폴더 구조 / 확장 로드맵
 
 `src/` 하위 모듈은 GUI(Streamlit)와 완전히 분리된 순수 Python이라 PySide6 데스크톱 버전으로
 그대로 이식 가능합니다. 확장 예정 모듈: `currency.py`(환율/헤지), `tax_engine.py`(미국 22%·국내 15.4%),
 `sensitivity.py`(진입시점 롤링 분석), `portfolio_engine.py`(다자산 리밸런싱), `regime_filter.py`(이평선 필터),
 라오어 V3.0/간이 모드.
 
-## 7. FAQ
+## 8. FAQ
 
 **Q. 실행하면 데이터 로딩이 오래 걸려요.**
 최초 1회만 전체 기간을 다운로드합니다. 이후에는 증분 캐시로 수 초 내에 재실행됩니다.

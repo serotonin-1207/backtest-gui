@@ -8,14 +8,16 @@
   - "kr_stock"          : 국내주식 직투 — 소액주주 양도차익 비과세(거래세는 수수료 옵션으로 처리 권장).
   - "none"              : 지수 등 비과세/비대상.
 
-주의(MVP 근사):
-  - 세금은 '만기 청산 시 일괄' 개념으로 최종 순자산에서 차감한다. 라오어처럼 중간 실현이
-    잦은 전략은 실제로는 매년 납부하지만, 여기서는 총액을 최종값에서 빼는 근사를 쓴다.
+주의(근사):
+  - 연도별 세금을 다음 해 첫 거래일에 보유자산 매도로 납부한 것으로 처리해 이후 복리 영향을 반영한다.
+    마지막 연도 세금은 백테스트 종료일에 차감한다.
   - 국내 ETF는 손실 통산 없이 '실현이익 합계 × 15.4%'로 근사한다(보수적).
 """
 from __future__ import annotations
 
 from collections import defaultdict
+
+import pandas as pd
 
 DEFAULT_PARAMS = {
     "us_rate": 0.22,               # 국세 20% + 지방 2%
@@ -57,12 +59,77 @@ def compute_tax(realized_gains: list[tuple], category: str,
 
     if category == "kr_etf":
         # 자산통화=KRW. 손실 통산 없이 실현이익 합계 × 15.4% (보수적 근사)
-        gains_pos = sum(g for _, g in realized_gains if g > 0)
+        by_year_pos: dict[int, float] = defaultdict(float)
+        for dt, gain in realized_gains:
+            if gain > 0:
+                by_year_pos[pd.Timestamp(dt).year] += gain
+        gains_pos = sum(by_year_pos.values())
         tax = gains_pos * p["kr_etf_rate"]
         out["total_tax_krw"] = tax
         out["total_tax_asset"] = tax
         out["taxable_krw"] = gains_pos
+        out["by_year"] = {
+            y: {"실현손익_원화": round(g), "과세표준": round(g),
+                "세금": round(g * p["kr_etf_rate"])}
+            for y, g in sorted(by_year_pos.items())
+        }
         out["note"] = "국내상장 ETF 매매차익 배당소득세 15.4% (실현이익 합계 기준 근사)"
         return out
 
     return out
+
+
+def tax_schedule_asset(tax_info: dict) -> dict[int, float]:
+    """세금 상세를 자산통화 기준 연도별 납부액으로 배분한다."""
+    explicit = tax_info.get("schedule_asset") or {}
+    if explicit:
+        return {int(year): float(amount) for year, amount in explicit.items() if float(amount) > 0}
+    total_asset = float(tax_info.get("total_tax_asset", 0.0) or 0.0)
+    by_year = tax_info.get("by_year") or {}
+    total_base = sum(float(v.get("세금", 0.0) or 0.0) for v in by_year.values())
+    if total_asset <= 0 or total_base <= 0:
+        return {}
+    return {
+        int(year): total_asset * float(detail.get("세금", 0.0) or 0.0) / total_base
+        for year, detail in by_year.items()
+        if float(detail.get("세금", 0.0) or 0.0) > 0
+    }
+
+
+def apply_annual_tax_drag(
+    equity: pd.Series,
+    flows: dict | None,
+    schedule: dict[int, float],
+) -> tuple[pd.Series, list[tuple[pd.Timestamp, float]]]:
+    """연도별 세금을 다음 해 첫 거래일에 자산 매도로 납부한 복리 영향을 근사한다.
+
+    백테스트 마지막 연도의 세금은 종료일에 납부한다. 세금 납부 후에는 원래 전략의
+    일간 TWR을 동일하게 적용하므로, 조기 납부로 사라진 원금의 이후 수익 기회도 제거된다.
+    """
+    eq = equity.astype(float).copy()
+    if eq.empty or not schedule:
+        return eq, []
+    f = pd.Series(0.0, index=eq.index)
+    for d, amount in (flows or {}).items():
+        d = pd.Timestamp(d)
+        if d in f.index:
+            f.loc[d] += float(amount)
+
+    payments_by_date: dict[pd.Timestamp, float] = defaultdict(float)
+    last_year = int(eq.index[-1].year)
+    for tax_year, amount in schedule.items():
+        candidates = eq.index[eq.index.year > int(tax_year)]
+        pay_date = candidates[0] if len(candidates) else eq.index[-1]
+        # 미래 연도에 대한 세금은 현재 백테스트에 포함하지 않는다.
+        if int(tax_year) <= last_year:
+            payments_by_date[pd.Timestamp(pay_date)] += float(amount)
+
+    adjusted = [float(eq.iloc[0]) - payments_by_date.get(pd.Timestamp(eq.index[0]), 0.0)]
+    for i in range(1, len(eq)):
+        prev = float(eq.iloc[i - 1])
+        daily_return = ((float(eq.iloc[i]) - float(f.iloc[i])) / prev - 1.0) if prev > 0 else 0.0
+        value = adjusted[-1] * (1.0 + daily_return) + float(f.iloc[i])
+        value -= payments_by_date.get(pd.Timestamp(eq.index[i]), 0.0)
+        adjusted.append(max(value, 0.0))
+    payments = sorted((d, a) for d, a in payments_by_date.items() if a > 0)
+    return pd.Series(adjusted, index=eq.index), payments

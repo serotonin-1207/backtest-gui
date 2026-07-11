@@ -59,12 +59,13 @@ ASSET_PRESETS: dict[str, dict] = {
     "TIGER 미국나스닥100": {"ticker": "133690", "source": "fdr",   "currency": "KRW"},
 }
 
-# 합성 가능한 레버리지 ETF: ticker -> (기초지수 티커, 배수, 연보수 추정)
+# 합성 가능한 레버리지 ETF: ticker -> (기초지수 티커, 배수, 현재 공시 순보수)
+# 실제 상장 구간은 수정주가에 비용이 이미 반영되며, 아래 값은 상장 전 합성 구간에만 사용한다.
 SYNTH_BASE: dict[str, tuple[str, float, float]] = {
     "TQQQ":   ("^NDX", 3.0, 0.0095),
     "QLD":    ("^NDX", 2.0, 0.0095),
-    "SPXL":   ("^GSPC", 3.0, 0.0091),
-    "SOXL":   ("^SOX", 3.0, 0.0076),
+    "SPXL":   ("^GSPC", 3.0, 0.0084),
+    "SOXL":   ("^SOX", 3.0, 0.0075),
     "122630": ("KS200", 2.0, 0.0064),   # KODEX 레버리지
 }
 
@@ -72,6 +73,12 @@ _KR_INDEX = {"KS11", "KQ11", "KS200"}
 
 # 배당 제외 '가격지수' — ETF(배당 반영)와 섞어 비교하면 불리하게 보임
 PRICE_INDEX_TICKERS = {"^GSPC", "^IXIC", "^NDX", "^DJI", "^SOX", "KS11", "KQ11", "KS200"}
+
+# 공식적으로 배당 재투자를 포함해 산출되는 총수익 지수의 Yahoo 심볼.
+# 제공 실패 시에만 INDEX_DIV_YIELD 고정 연율 근사로 폴백한다.
+TOTAL_RETURN_TICKERS = {
+    "^GSPC": "^SP500TR",  # S&P 500 Total Return Index (SPXT)
+}
 
 # 가격지수의 대략적 연 배당수익률 (TR 근사 보정용, 참고값)
 INDEX_DIV_YIELD = {

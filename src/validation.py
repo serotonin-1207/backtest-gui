@@ -42,3 +42,43 @@ def validate_synthetic(ticker: str) -> dict | None:
         "합성 MDD": mdd(synth),
         "실제 MDD": mdd(actual),
     }
+
+
+def validate_intraday_ohlc(ticker: str, period: str = "60d", interval: str = "5m") -> dict:
+    """최근 분봉을 일봉으로 재집계해 백테스트 일봉 OHLC와 비교한다."""
+    import yfinance as yf
+
+    raw = yf.download(
+        ticker, period=period, interval=interval, auto_adjust=True,
+        progress=False, prepost=False,
+    )
+    if raw is None or raw.empty:
+        raise ValueError("분봉 데이터가 비어 있습니다. 티커 또는 제공 기간을 확인하세요.")
+    if isinstance(raw.columns, pd.MultiIndex):
+        raw.columns = raw.columns.get_level_values(0)
+    raw.index = pd.to_datetime(raw.index)
+    if raw.index.tz is not None:
+        raw.index = raw.index.tz_convert("America/New_York").tz_localize(None)
+    session_date = raw.index.normalize()
+    intraday = raw.groupby(session_date).agg(
+        {"Open": "first", "High": "max", "Low": "min", "Close": "last"}
+    ).dropna()
+
+    daily = get_price(ticker, source="yahoo")[
+        ["Open", "High", "Low", "Close"]
+    ].astype(float)
+    common = intraday.index.intersection(daily.index)
+    if len(common) < 5:
+        raise ValueError("일봉과 분봉의 공통 거래일이 5일 미만입니다.")
+    a = intraday.loc[common]
+    b = daily.loc[common]
+    errors_bp = (a - b).abs().div(b.abs().clip(lower=1e-12)) * 10_000
+    return {
+        "티커": ticker,
+        "검증기간": f"{common.min().date()} ~ {common.max().date()}",
+        "공통거래일": len(common),
+        "종가 평균오차(bp)": round(float(errors_bp["Close"].mean()), 2),
+        "고가 평균오차(bp)": round(float(errors_bp["High"].mean()), 2),
+        "저가 평균오차(bp)": round(float(errors_bp["Low"].mean()), 2),
+        "최대 OHLC 오차(bp)": round(float(errors_bp.max().max()), 2),
+    }

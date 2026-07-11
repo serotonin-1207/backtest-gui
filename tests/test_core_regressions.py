@@ -14,7 +14,7 @@ from src.indices_ref import _chart_data, _fig, _fig_since_1990s
 from src.laoer_strategy import run_laoer
 from src.metrics import cagr, mdd, twr_index, xirr
 from src.synthetic_etf import apply_dividend_addback, synthesize_close
-from src.tax_engine import compute_tax
+from src.tax_engine import apply_annual_tax_drag, compute_tax, tax_schedule_asset
 
 
 class CoreRegressionTests(unittest.TestCase):
@@ -58,6 +58,36 @@ class CoreRegressionTests(unittest.TestCase):
         gains = [(pd.Timestamp("2024-12-31"), 10_000_000.0)]
         tax = compute_tax(gains, "kr_stock")
         self.assertEqual(tax["total_tax_krw"], 0.0)
+
+    def test_annual_tax_payment_reduces_future_compounding(self):
+        idx = pd.to_datetime(["2024-12-31", "2025-01-02", "2025-12-31"])
+        equity = pd.Series([100.0, 100.0, 200.0], index=idx)
+        adjusted, payments = apply_annual_tax_drag(
+            equity, {}, {2024: 10.0}
+        )
+        self.assertEqual(payments, [(pd.Timestamp("2025-01-02"), 10.0)])
+        self.assertAlmostEqual(float(adjusted.iloc[-1]), 180.0)
+
+    def test_tax_schedule_preserves_total_asset_tax(self):
+        info = {
+            "total_tax_asset": 300.0,
+            "by_year": {2023: {"세금": 100.0}, 2024: {"세금": 200.0}},
+        }
+        schedule = tax_schedule_asset(info)
+        self.assertAlmostEqual(sum(schedule.values()), 300.0)
+        self.assertAlmostEqual(schedule[2023], 100.0)
+
+    def test_fill_buffer_blocks_borderline_laoer_sale(self):
+        idx = pd.bdate_range("2024-01-01", periods=3)
+        ohlc = pd.DataFrame(
+            {"Close": [100.0, 110.05, 110.05], "High": [100.0, 110.05, 110.05]},
+            index=idx,
+        )
+        normal = run_laoer(ohlc, "normal", 1000.0, splits=1, fill_buffer_bp=0)
+        buffered = run_laoer(ohlc, "buffered", 1000.0, splits=1, fill_buffer_bp=100)
+        normal_done = normal.laoer_sets["종료사유"].eq("전량매도").sum()
+        buffered_done = buffered.laoer_sets["종료사유"].eq("전량매도").sum()
+        self.assertGreater(normal_done, buffered_done)
 
     def test_cash_plan_reference_value(self):
         result = run_scenario(

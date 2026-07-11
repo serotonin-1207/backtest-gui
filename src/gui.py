@@ -17,19 +17,20 @@ from .charts import (fig_annual_returns, fig_cash_ratio, fig_drawdown,
 from .currency import (CURRENCY_LABELS, SUPPORTED, convert, cross_rate, get_fx_series,
                        get_rates, korean_money)
 from .data_loader import (ASSET_PRESETS, INDEX_DIV_YIELD, PRICE_INDEX_TICKERS, SYNTH_BASE,
+                          TOTAL_RETURN_TICKERS,
                           cache_status, clear_cache, get_price, route_ticker, tax_category)
 from .excel_export import build_excel
 from .interpret import interpret_results
 from .laoer_strategy import run_laoer
 from .metrics import summarize, twr_index, xirr
 from .synthetic_etf import apply_dividend_addback, extend_with_synthetic
-from .tax_engine import compute_tax
-from .validation import validate_synthetic
+from .tax_engine import apply_annual_tax_drag, compute_tax, tax_schedule_asset
+from .validation import validate_intraday_ohlc, validate_synthetic
 
 OUT_DIR = Path(__file__).resolve().parent.parent / "output" / "reports"
 
 # 배포 버전 — 변경 사항을 올릴 때마다 갱신. 화면에 표시되어 "최신 반영 여부"를 눈으로 확인할 수 있음.
-APP_VERSION = "1.6.0 (2026-07-11) — 계산 오류 보정, TWR 차트 통일, 지수 차트 해설 강화"
+APP_VERSION = "1.7.0 (2026-07-11) — 연도별 세금·체결검증·참조데이터 자동화·CI"
 
 MONEY_COLS = ["총투입금", "추가불입", "중도인출", "순투입금", "최종순자산", "총이자",
               "세금", "세후최종순자산", "매매비용"]
@@ -89,7 +90,7 @@ def _fmt_rate(x: float) -> str:
 @st.dialog("📉 주요 지수 폭락 구간 (참고)", width="large")
 def _dlg_crash():
     st.caption("백테스트 시작/종료일 잡을 때 참고하세요. 실측 기준이며 지수마다 고점·저점 날짜는 조금씩 다릅니다.")
-    st.plotly_chart(_fig_crash_bars(), use_container_width=True)
+    st.plotly_chart(_fig_crash_bars(), width="stretch")
     st.markdown(_CRASH_REF_MD)
     st.success("✅ **최종 결론** — ① 폭락은 10년에 2~4번 반드시 옵니다(회피 불가). "
                "② 같은 사건이라도 지수별 낙폭이 크게 다릅니다(닷컴: 다우 -38% vs 나스닥100 -83%). "
@@ -121,13 +122,13 @@ def _render_reference_bar():
     with st.container(border=True):
         st.markdown("#### 📖 참고 자료")
         c1, c2 = st.columns(2)
-        if c1.button("📉 주요 지수 폭락 구간 (참고)", use_container_width=True, key="btn_ref_crash"):
+        if c1.button("📉 주요 지수 폭락 구간 (참고)", width="stretch", key="btn_ref_crash"):
             _dlg_crash()
         render_indices_button(c2)
         c3, c4 = st.columns(2)
-        if c3.button("❓ 도움말 · 옵션 설명", use_container_width=True, key="btn_ref_help"):
+        if c3.button("❓ 도움말 · 옵션 설명", width="stretch", key="btn_ref_help"):
             _dlg_help()
-        if c4.button("📚 용어 사전", use_container_width=True, key="btn_ref_glossary"):
+        if c4.button("📚 용어 사전", width="stretch", key="btn_ref_glossary"):
             _dlg_glossary()
 
 
@@ -219,7 +220,18 @@ def _tax_info(r, fx_rates: dict):
             rate = cross_rate(r.currency, "KRW", fx_rates) or 1.0
             to_krw = lambda amt, dt: amt * rate
             final_fx = rate
-        return compute_tax(gains, cat, to_krw=to_krw, asset_to_krw_final=final_fx)
+        info = compute_tax(gains, cat, to_krw=to_krw, asset_to_krw_final=final_fx)
+        schedule_asset = {}
+        for year, detail in info.get("by_year", {}).items():
+            tax_krw = float(detail.get("세금", 0.0) or 0.0)
+            if tax_krw <= 0:
+                continue
+            later = fxk.index[fxk.index.year > int(year)] if fxk is not None else []
+            pay_date = later[0] if len(later) else r.equity.index[-1]
+            pay_fx = _at(fxk, pay_date) if fxk is not None else final_fx
+            schedule_asset[int(year)] = tax_krw / pay_fx if pay_fx else tax_krw
+        info["schedule_asset"] = schedule_asset
+        return info
     return compute_tax(gains, cat)
 
 HELP = {
@@ -235,7 +247,7 @@ HELP = {
     "라오어": "V2.2(안정형·40분할·단리): 매도목표 +10%, 오프셋 (10−T/2)%. "
              "V3.0(공격형·20분할·복리): 매도목표 +15%, 오프셋 (15−1.5T)%, 세트마다 수익을 1회 매수금에 반영 → 수익·낙폭 모두 커짐. "
              "전반전은 절반 평단 LOC + 절반 오프셋 LOC, 후반전은 오프셋 LOC 하나. 매일 1/4 LOC + 3/4 지정가 매도.",
-    "세금비용": "세금 반영(미국 22%/국내ETF 15.4%/국내주식 비과세), 지수 배당 보정(TR 근사), 환율 효과(언헤지 일별환율), 매매 수수료·슬리피지(bp). "
+    "세금비용": "세금 반영(미국 22%/국내ETF 15.4%/국내주식 비과세), 지수 총수익 보정, 환율 효과(언헤지 일별환율), 매매 수수료·슬리피지(bp). "
                "모두 기본 OFF = 세전·비용0. 켜면 세전/세후를 나란히 비교합니다.",
     "모드": "📈 가격 백테스트: 자산 가격 기준 수익 시뮬레이션. 💵 적립식 현금관리 계산기: 대기자금 RP운용·조달이자·수수료의 순효과 계산.",
     "기준화폐": "투자금을 어느 통화로 입력하는지. 예: KRW 선택 + 10,000 입력 = 1만원 투자. "
@@ -379,7 +391,7 @@ def _render_backtest():
                        help="티커를 입력하고 ➕추가. 존재하는 티커면 아래 목록에 담깁니다. "
                             "6자리 숫자=한국, 알파벳=미국 자동 판별.")
         tc2.selectbox("국가", ["자동", "한국(kr)", "미국(us)"], index=0, key="new_ticker_ov")
-        st.button("➕ 추가", on_click=_add_custom_ticker, use_container_width=True)
+        st.button("➕ 추가", on_click=_add_custom_ticker, width="stretch")
         msg = st.session_state.pop("ticker_msg", None)
         if msg:
             {"ok": st.success, "warn": st.warning, "error": st.error}[msg[0]](msg[1])
@@ -437,6 +449,11 @@ def _render_backtest():
             laoer_exhaustion = st.selectbox("원금 소진 시", ["대기", "쿼터손절"])
             laoer_contrib = st.selectbox("라오어 중 추가불입 처리",
                                          ["다음 세트부터 반영", "즉시 현금 추가"])
+            fill_buffer_bp = st.number_input(
+                "체결 안전마진(bp)", 0.0, 200.0, 0.0, 5.0,
+                help="일봉 체결의 낙관 편향을 줄이는 보수적 조건입니다. 예: 20bp면 매수는 지정가보다 "
+                     "0.2% 더 낮아야, 매도는 0.2% 더 높아야 체결된 것으로 봅니다. 0은 기존 방식입니다.",
+            )
 
         with st.expander("💸 추가 불입 / 중도 인출", expanded=False):
             st.caption(HELP["불입인출"])
@@ -463,10 +480,12 @@ def _render_backtest():
             tax_on = st.toggle("세금 반영", value=False,
                                help="미국 자산: 양도소득세 22%(연 250만원 공제, 손익통산, 거래일 환율 원화환산). "
                                     "국내 ETF: 매매차익 15.4%. 국내주식: 양도차익 비과세. "
-                                    "※ 만기 청산 기준 근사 — 세전/세후를 나란히 표시합니다.")
-            div_on = st.toggle("지수 배당 보정 (TR 근사)", value=False,
+                                    "연도별 세금을 다음 해 첫 거래일에 납부한 복리 영향까지 반영합니다.")
+            div_on = st.toggle("지수 배당 보정 (총수익 지수 우선)", value=False,
                                help="S&P500·나스닥100·코스피 등 '가격지수'는 배당이 빠져 있어 ETF와 비교 시 불리하게 보입니다. "
-                                    "켜면 대략적 배당수익률을 더해 총수익(TR)에 가깝게 보정합니다.")
+                                    "켜면 S&P500은 장기 조회 가능한 배당 재투자 총수익 지수를 우선 사용하고, "
+                                    "나스닥100 등 "
+                                    "제공되지 않는 지수만 연 배당률 근사로 보정합니다. ETF 수정주가는 이미 분배금·보수를 반영합니다.")
             fx_on = st.toggle("환율 효과 반영 (언헤지)", value=False,
                               help="달러 등 외화 자산을 기준화폐로 볼 때, 과거 '일별 환율 변동(환손익)'을 수익률에 반영합니다. "
                                    "OFF면 환헤지 가정(자산 통화 수익률만).")
@@ -477,7 +496,7 @@ def _render_backtest():
                                        help="체결 미끄러짐. LOC/지정가 가정의 현실성 검증용.")
 
         st.divider()
-        run_btn = st.button("🚀 백테스트 실행", type="primary", use_container_width=True)
+        run_btn = st.button("🚀 백테스트 실행", type="primary", width="stretch")
 
         with st.expander("🗂️ 데이터 캐시 관리"):
             cs = cache_status()
@@ -530,7 +549,21 @@ def _render_backtest():
             try:
                 ohlc, mask = _load_asset(tgt["ticker"], tgt["source"], tgt["currency"], same_start)
                 if div_on and tgt["ticker"] in PRICE_INDEX_TICKERS:
-                    ohlc = apply_dividend_addback(ohlc, INDEX_DIV_YIELD.get(tgt["ticker"], 0.0))
+                    tr_ticker = TOTAL_RETURN_TICKERS.get(tgt["ticker"])
+                    if tr_ticker:
+                        try:
+                            ohlc = get_price(tr_ticker, "yahoo", tgt["currency"])
+                            ohlc.attrs["total_return_source"] = tr_ticker
+                        except Exception:
+                            ohlc = apply_dividend_addback(
+                                ohlc, INDEX_DIV_YIELD.get(tgt["ticker"], 0.0)
+                            )
+                            ohlc.attrs["total_return_source"] = "연율 근사 폴백"
+                    else:
+                        ohlc = apply_dividend_addback(
+                            ohlc, INDEX_DIV_YIELD.get(tgt["ticker"], 0.0)
+                        )
+                        ohlc.attrs["total_return_source"] = "연율 근사 폴백"
                 if ohlc.attrs.get("stale"):
                     stale_warn.append(tgt["name"])
             except Exception as e:
@@ -554,7 +587,8 @@ def _render_backtest():
                                       boundary_t=laoer_boundary, exhaustion=laoer_exhaustion,
                                       events=events_a, contrib_mode=laoer_contrib,
                                       currency=acur, synthetic_mask=mask,
-                                      fee_bp=fee_bp, slippage_bp=slip_bp, version=laoer_version)
+                                      fee_bp=fee_bp, slippage_bp=slip_bp,
+                                      fill_buffer_bp=fill_buffer_bp, version=laoer_version)
                     else:
                         r = run_backtest(ohlc, sname, mode, cap_a, start=start_date, end=end_date,
                                          dca_freq=dca_freq, dca_years=dca_years, events=events_a,
@@ -585,12 +619,13 @@ def _render_backtest():
             "기준화폐": f"{base_code} ({SUPPORTED.get(base_code, ('', ''))[1]})",
             "적용환율": f"{rates_str} (기준일 {fx_date})" if rates_str else "환산 없음",
             "적립주기": dca_freq, "적립기간": dca_span,
-            "라오어": f"{laoer_version} {laoer_splits}분할, 목표 {laoer_target}%, 경계 T={laoer_boundary}, 소진={laoer_exhaustion}",
+            "라오어": f"{laoer_version} {laoer_splits}분할, 목표 {laoer_target}%, 경계 T={laoer_boundary}, "
+                      f"소진={laoer_exhaustion}, 체결 안전마진={fill_buffer_bp:.0f}bp",
             "대출": f"{'ON' if loan_on else 'OFF'} (금액 {loan_amount:,.0f} {base_code}, 금리 {loan_rate:.2%})",
             "불입/인출 이벤트 수": len(events),
             "세금": f"{'ON (미국22%/국내ETF15.4%)' if tax_on else 'OFF (세전)'}",
             "환율효과(언헤지)": f"{'ON (일별 환율 반영)' if fx_on else 'OFF (환헤지 가정)'}",
-            "지수배당보정": f"{'ON (TR 근사)' if div_on else 'OFF'}",
+            "지수배당보정": f"{'ON (공식 총수익 지수 우선, 미제공 시 연율 근사)' if div_on else 'OFF'}",
             "매매비용": f"수수료 {fee_bp:.0f}bp + 슬리피지 {slip_bp:.0f}bp (편도)",
             "통화처리": "투자금은 기준 화폐로 입력 → 자산 통화로 현재 환율 환산 투입 → 표시 통화로 환산 출력",
         }
@@ -633,12 +668,21 @@ def _render_backtest():
         if tax_on:
             ti = _tax_info(r, fx_rates)
             tax_eff = convert(ti["total_tax_asset"], r.currency, eff_ccy, fx_rates)
+            schedule = {
+                year: convert(amount, r.currency, eff_ccy, fx_rates)
+                for year, amount in tax_schedule_asset(ti).items()
+            }
+            after_equity, tax_payments = apply_annual_tax_drag(
+                eq_eff, flows_eff, schedule
+            )
             cfs_after = list(cfs_eff)
             if cfs_after:
-                d_last, a_last = cfs_after[-1]
-                cfs_after[-1] = (d_last, a_last - tax_eff)
+                d_last, _ = cfs_after[-1]
+                cfs_after[-1] = (d_last, float(after_equity.iloc[-1]))
             after_xirr = xirr(cfs_after)
-        after_final = final_v - tax_eff
+            after_final = float(after_equity.iloc[-1])
+        else:
+            after_final = final_v
 
         rows.append({
             "전략명": r.name, "통화": eff_ccy,
@@ -695,7 +739,7 @@ def _render_backtest():
             fx_rows.append({"통화": c, "이름": name,
                             "1 USD당": f"{fx_rates[c]:,.4f}" if c in fx_rates else "조회 실패",
                             f"1 {c} = ? {target_cur}": _fmt_rate(xr) if xr else "-"})
-        st.dataframe(pd.DataFrame(fx_rows), hide_index=True, use_container_width=True)
+        st.dataframe(pd.DataFrame(fx_rows), hide_index=True, width="stretch")
 
     miss_rows = [c for c in set(summary_df["통화"]) if c not in fx_rates]
     if target_cur and miss_rows and any(c != target_cur for c in miss_rows):
@@ -737,7 +781,7 @@ def _render_backtest():
         asc = sort_key == "MDD"
         show = display_df.sort_values(sort_key, ascending=asc, na_position="last")
         pct_cols = ("총수익률", "CAGR", "XIRR", "MDD", "연율변동성", "세후XIRR", "환효과기여")
-        st.dataframe(show, hide_index=True, use_container_width=True,
+        st.dataframe(show, hide_index=True, width="stretch",
                      column_config={c: st.column_config.NumberColumn(format="percent" if c in
                                     pct_cols else "localized")
                                     for c in show.columns if show[c].dtype.kind == "f"})
@@ -751,8 +795,8 @@ def _render_backtest():
                    "시간가중(TWR) 기준 · XIRR=실제 현금흐름 기준 연환산. 자세한 정의는 좌측 '📚 용어 사전' 참고.")
         notes = []
         if tax_on:
-            notes.append("세금: 미국 22%(연 250만원 공제·손익통산·거래일 환율) / 국내ETF 15.4% / 국내주식 비과세 — "
-                         "만기 청산 기준 근사입니다. '세후' 열과 비교하세요.")
+            notes.append("세금: 미국 22%(연 250만원 공제·손익통산·거래일 환율) / 국내ETF 15.4% / 국내주식 비과세. "
+                         "연도별 세금을 다음 해 첫 거래일에 납부한 것으로 처리해 이후 복리 손실까지 반영합니다.")
         if fx_on:
             notes.append("환율효과 ON: 외화 자산을 기준화폐로 볼 때 과거 일별 환율 변동을 수익률에 반영했습니다. "
                          "'환효과기여' = 원화수익률 − 자산통화수익률.")
@@ -792,29 +836,29 @@ def _render_backtest():
         log_scale = c1.toggle("로그 스케일", value=False,
                               help="세로축을 배수 기준으로 — 장기 복리 비교 시 필수")
         normalize = c1.toggle("시작=100 정규화", value=True)
-        st.plotly_chart(fig_equity(chart_results, log_scale, normalize), use_container_width=True)
-        st.plotly_chart(fig_drawdown(chart_results), use_container_width=True)
+        st.plotly_chart(fig_equity(chart_results, log_scale, normalize), width="stretch")
+        st.plotly_chart(fig_drawdown(chart_results), width="stretch")
         cc1, cc2 = st.columns(2)
         conv_vals = [convert(r.final_value, r.currency, target_cur, fx_rates) for r in chart_results]
-        cc1.plotly_chart(fig_final_values(chart_results, conv_vals, target_cur), use_container_width=True)
-        cc2.plotly_chart(fig_annual_returns(chart_results), use_container_width=True)
+        cc1.plotly_chart(fig_final_values(chart_results, conv_vals, target_cur), width="stretch")
+        cc2.plotly_chart(fig_annual_returns(chart_results), width="stretch")
         pick = st.selectbox("월별 히트맵 전략", [r.name for r in results])
         target = next(r for r in chart_results if r.name == pick)
-        st.plotly_chart(fig_monthly_heatmap(target), use_container_width=True)
+        st.plotly_chart(fig_monthly_heatmap(target), width="stretch")
         if any(r.cash_series is not None for r in chart_results):
-            st.plotly_chart(fig_cash_ratio(chart_results), use_container_width=True)
+            st.plotly_chart(fig_cash_ratio(chart_results), width="stretch")
 
     # ---- 현금흐름
     with tabs[3]:
         cf_rows = [{"전략": r.name, "날짜": pd.Timestamp(d).date(), "금액(투입-, 회수+)": a}
                    for r in results for d, a in r.cashflows]
-        st.dataframe(pd.DataFrame(cf_rows), hide_index=True, use_container_width=True,
+        st.dataframe(pd.DataFrame(cf_rows), hide_index=True, width="stretch",
                      column_config={"금액(투입-, 회수+)": st.column_config.NumberColumn(format="localized")})
         ev_rows = [{"전략": r.name, "날짜": pd.Timestamp(e["date"]).date(), "구분": e["구분"],
                     "금액": e["금액"]} for r in results for e in r.events_log]
         if ev_rows:
             st.markdown("**이벤트 내역 (불입/인출/대출/쿼터손절)**")
-            st.dataframe(pd.DataFrame(ev_rows), hide_index=True, use_container_width=True,
+            st.dataframe(pd.DataFrame(ev_rows), hide_index=True, width="stretch",
                          column_config={"금액": st.column_config.NumberColumn(format="localized")})
 
     # ---- 라오어
@@ -823,7 +867,7 @@ def _render_backtest():
         if not lao:
             st.info("라오어 전략이 없습니다. 사이드바에서 '라오어 V2.2'를 선택하세요.")
         else:
-            st.plotly_chart(fig_t_series(lao), use_container_width=True)
+            st.plotly_chart(fig_t_series(lao), width="stretch")
             for r in lao:
                 st.markdown(f"**{r.name} — 세트별 매매 내역**")
                 done = r.laoer_sets[r.laoer_sets["종료사유"] != "진행중"]
@@ -831,7 +875,7 @@ def _render_backtest():
                     win = (done["세트손익"] > 0).mean()
                     st.caption(f"완료 세트 {len(done)}개 · 승률 {win:.0%} · 평균 소요 {done['소요일'].mean():.0f}일 "
                                f"· 최악 세트손익 {done['세트손익'].min():,.0f}")
-                st.dataframe(r.laoer_sets, hide_index=True, use_container_width=True)
+                st.dataframe(r.laoer_sets, hide_index=True, width="stretch")
 
     # ---- 검증
     with tabs[5]:
@@ -851,7 +895,20 @@ def _render_backtest():
                 for c in ("합성 CAGR", "실제 CAGR", "추적오차(연율)", "합성 MDD", "실제 MDD"):
                     vdf[c] = vdf[c].map(lambda x: f"{x:.2%}")
                 vdf["일수익 상관"] = vdf["일수익 상관"].map(lambda x: f"{x:.3f}")
-                st.dataframe(vdf, hide_index=True, use_container_width=True)
+                st.dataframe(vdf, hide_index=True, width="stretch")
+        st.divider()
+        st.markdown("#### 🔬 최근 분봉으로 일봉 체결 데이터 확인")
+        st.caption("무료 분봉 제공 범위 때문에 최근 약 60일만 검증합니다. 5분봉을 일봉으로 다시 합쳐 "
+                   "백테스트가 사용하는 종가·고가·저가와 얼마나 일치하는지 확인합니다.")
+        intraday_ticker = st.text_input("분봉 검증 티커", value="TQQQ", key="intraday_ticker")
+        if st.button("최근 5분봉 검증 실행", key="run_intraday_validation"):
+            try:
+                iv = validate_intraday_ohlc(intraday_ticker.strip().upper())
+                st.dataframe(pd.DataFrame([iv]), hide_index=True, width="stretch")
+                st.info("오차가 크면 라오어 설정의 **체결 안전마진(bp)**과 슬리피지를 높여 "
+                        "보수적으로 다시 계산하세요. 장기 분봉은 무료 소스 제한으로 제공되지 않습니다.")
+            except Exception as e:
+                st.error(f"분봉 검증 실패: {e}")
 
     # ---- 내보내기
     with tabs[6]:

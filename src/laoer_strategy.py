@@ -47,6 +47,7 @@ def run_laoer(
     synthetic_mask: pd.Series | None = None,
     fee_bp: float = 0.0,
     slippage_bp: float = 0.0,
+    fill_buffer_bp: float = 0.0,       # 체결 안전마진: 지정가를 추가로 넘어야 체결
     version: str = "V2.2",             # "V2.2"(안정·40분할·단리) | "V3.0"(공격·20분할·복리)
 ) -> BacktestResult:
     df = ohlc.copy()
@@ -58,6 +59,14 @@ def run_laoer(
         raise ValueError(f"[{name}] 기간 내 데이터가 부족합니다.")
 
     c = (fee_bp + slippage_bp) / 1e4     # 편도 거래비용률 (회전액 대비)
+    fill_buffer = max(float(fill_buffer_bp), 0.0) / 1e4
+    price_eps = 1e-12
+
+    def reaches_or_above(value: float, threshold: float) -> bool:
+        return value >= threshold * (1.0 - price_eps)
+
+    def reaches_or_below(value: float, threshold: float) -> bool:
+        return value <= threshold * (1.0 + price_eps)
     idx = df.index
     close = df["Close"].astype(float)
     high = df["High"].astype(float) if "High" in df else close
@@ -218,10 +227,10 @@ def run_laoer(
             q1 = pre_shares * 0.25
             q2 = pre_shares - q1
             s1 = s2 = False
-            if px >= loc_sell_limit:                    # 1/4 LOC 매도 → 종가 체결
+            if reaches_or_above(px, loc_sell_limit * (1.0 + fill_buffer)):
                 do_sell(q1, px, dt)
                 s1 = True
-            if hi >= star_limit:                        # 3/4 지정가 매도 → 지정가 체결
+            if reaches_or_above(hi, star_limit * (1.0 + fill_buffer)):
                 do_sell(q2, star_limit, dt)
                 s2 = True
             if s1 and s2:
@@ -254,12 +263,12 @@ def run_laoer(
             spent = 0.0
             if T < boundary_t:                          # 전반전: 절반 평단 LOC + 절반 (10-T/2)% LOC
                 half = budget / 2
-                if px <= avg and half > 0:
+                if reaches_or_below(px, avg * (1.0 - fill_buffer)) and half > 0:
                     spent += half
-                if px <= loc_buy_limit and half > 0:
+                if reaches_or_below(px, loc_buy_limit * (1.0 - fill_buffer)) and half > 0:
                     spent += half
             else:                                       # 후반전: 전체 (10-T/2)% LOC
-                if px <= loc_buy_limit and budget > 0:
+                if reaches_or_below(px, loc_buy_limit * (1.0 - fill_buffer)) and budget > 0:
                     spent = budget
             if spent > 0 and px > 0:
                 do_buy(spent, px)

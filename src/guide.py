@@ -291,7 +291,7 @@ def _full_doc(title: str, body: str) -> bytes:
 
 @st.dialog("⚠️ 레버리지 ETF 생존 경고", width="large")
 def _dlg_warning():
-    st.plotly_chart(_fig_recovery_need(), use_container_width=True)
+    st.plotly_chart(_fig_recovery_need(), width="stretch")
     st.caption("👆 이 차트가 이 문서의 전부입니다: **-82%가 되면 +445%를 벌어야 본전**. 떨어지는 건 순간, 회복은 기하급수.")
     st.html(GUIDE1)
     st.error("🚨 **최종 결론** — ① 레버리지 ETF에 강제청산은 없지만, 연속 폭락+감쇠로 '사실상 회복 불능'이 진짜 위험. "
@@ -300,14 +300,14 @@ def _dlg_warning():
              "④ SNS의 '몇백% 수익'은 생존자의 이야기일 뿐 — 같은 전략으로 사라진 계좌는 말이 없습니다.")
     st.download_button("📥 이 경고문을 HTML로 저장 (새 탭에서 열기·공유·인쇄)",
                        _full_doc("레버리지 ETF 생존 경고", GUIDE1),
-                       "leverage_warning.html", "text/html", use_container_width=True)
+                       "leverage_warning.html", "text/html", width="stretch")
 
 
 @st.dialog("📊 적립식 전략 시뮬레이션 리포트", width="large")
 def _dlg_report():
     st.markdown("##### 👀 결과 미리보기 — 차트 두 장이면 결론이 보입니다")
-    st.plotly_chart(_fig_timing_compare(bull=True), use_container_width=True)
-    st.plotly_chart(_fig_timing_compare(bull=False), use_container_width=True)
+    st.plotly_chart(_fig_timing_compare(bull=True), width="stretch")
+    st.plotly_chart(_fig_timing_compare(bull=False), width="stretch")
     st.caption("👆 상승장(①)엔 거치식이 근소 우위지만, 최악 타이밍(②)엔 적립식이 2배 이상 우위 + 낙폭 완화. "
                "자세한 설계·수치·해석은 아래 본문.")
     st.html(REPORT)
@@ -318,12 +318,12 @@ def _dlg_report():
                "④ 레버리지(TQQQ)일수록 적립식 효과가 큼 — 몰빵과 궁합 최악.")
     st.download_button("📥 이 리포트를 HTML로 저장 (새 탭에서 열기·공유·인쇄)",
                        _full_doc("적립식 전략 시뮬레이션 리포트", REPORT),
-                       "dca_strategy_report.html", "text/html", use_container_width=True)
+                       "dca_strategy_report.html", "text/html", width="stretch")
 
 
 @st.dialog("📈 왜 나스닥100(QQQ)인가?", width="large")
 def _dlg_why():
-    st.plotly_chart(_fig_why_qqq(), use_container_width=True)
+    st.plotly_chart(_fig_why_qqq(), width="stretch")
     st.caption("👆 막대(수익률)는 오른쪽으로 갈수록 높아지는데, 빨간선(낙폭)은 나스닥100까지 비슷하다가 반도체에서 튐 — "
                "**나스닥100 = '낙폭 안 키우고 수익만 올린 마지막 지점'**.")
     st.html(WHY_QQQ)
@@ -334,7 +334,7 @@ def _dlg_why():
                "④ 단, 나스닥100도 닷컴 때 -83%·회복 13년 — 어떤 지수든 몰빵·거치식보다 적립식 분산이 안전합니다.")
     st.download_button("📥 이 문서를 HTML로 저장 (새 탭에서 열기·공유·인쇄)",
                        _full_doc("왜 나스닥100(QQQ)인가 — 1배 지수 비교", WHY_QQQ),
-                       "why_qqq.html", "text/html", use_container_width=True)
+                       "why_qqq.html", "text/html", width="stretch")
 
 
 def render_pinned_guides():
@@ -343,9 +343,9 @@ def render_pinned_guides():
         st.markdown("#### 📌 투자 전 필독 — 레버리지 ETF 위험 & 지수/전략 가이드")
         st.caption("버튼을 누르면 큰 팝업 창으로 자세히 열립니다. 각 문서는 HTML로 저장해 새 탭·지인 공유·인쇄도 가능합니다.")
         c = st.columns(2)
-        if c[0].button("⚠️ 레버리지 ETF 생존 경고", use_container_width=True, key="btn_guide_warn"):
+        if c[0].button("⚠️ 레버리지 ETF 생존 경고", width="stretch", key="btn_guide_warn"):
             _dlg_warning()
-        if c[1].button("📊 적립식 전략 시뮬레이션 리포트", use_container_width=True, key="btn_guide_report"):
+        if c[1].button("📊 적립식 전략 시뮬레이션 리포트", width="stretch", key="btn_guide_report"):
             _dlg_report()
-        if st.button("📈 왜 나스닥100(QQQ)인가? — 1배 지수 비교", use_container_width=True, key="btn_guide_why"):
+        if st.button("📈 왜 나스닥100(QQQ)인가? — 1배 지수 비교", width="stretch", key="btn_guide_why"):
             _dlg_why()

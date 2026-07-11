@@ -7,12 +7,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
 _DATA = Path(__file__).resolve().parent / "index_ref_data.csv"
+_META = Path(__file__).resolve().parent.parent / "data" / "reference_metadata.json"
 
 _CSS = """
 <style>
@@ -66,40 +68,6 @@ PRODUCTS_HTML = _CSS + """
 매매·주식더모으기 가능 여부는 반드시 앱에서 확인하세요. 국내상장 유사상품(TIGER·KODEX 미국나스닥100 등)도 있습니다.</p>
 </div>
 """
-
-# ---------------- 성과·위험 요약 (실측)
-SUMMARY_HTML = _CSS + """
-<div class="ir">
-<h2>📊 상장 이후 성과 · 위험 (실측)</h2>
-<table>
-<tr><th>상품</th><th>상장</th><th>누적</th><th>CAGR</th><th>역대 최악 MDD</th></tr>
-<tr><td class="neg">TQQQ (나100 3배)</td><td>2010</td><td>371배</td><td>43.4%</td><td class="neg">-81.7%</td></tr>
-<tr><td class="neg">SOXL (반도체 3배)</td><td>2010</td><td>320배</td><td>42.4%</td><td class="neg">-90.5%</td></tr>
-<tr><td>UPRO (S&P 3배)</td><td>2009</td><td>129배</td><td>33.0%</td><td>-76.8%</td></tr>
-<tr><td>QLD (나100 2배)</td><td>2006</td><td>95배</td><td>25.5%</td><td>-83.1%</td></tr>
-<tr><td>UDOW (다우 3배)</td><td>2010</td><td>48배</td><td>26.5%</td><td>-80.3%</td></tr>
-<tr><td>반도체(SOX 1배)</td><td>—</td><td>—</td><td class="pos">15.7%</td><td class="neg">-87.1%</td></tr>
-<tr><td>나스닥100 (1배)</td><td>—</td><td>—</td><td>14.7%</td><td>-82.9%</td></tr>
-<tr><td>QQQ (1배 ETF)</td><td>1999</td><td>17배</td><td>10.9%</td><td>-83.0%</td></tr>
-<tr><td>SPY (S&P 1배)</td><td>1993</td><td>31배</td><td>10.8%</td><td>-55.2%</td></tr>
-<tr><td>다우 / 러셀2000 (1배)</td><td>—</td><td>—</td><td>8~9%</td><td>-52~60%</td></tr>
-</table>
-
-<div class="tip">
-<b>한눈 요약</b><br>
-• <b>수익 1위(1배)</b>: 반도체(CAGR 15.7%) &gt; 나스닥100(14.7%) &gt; S&P500·나스닥종합(11%) &gt; 다우·러셀(8~9%).
-반도체는 <b>최근만이 아니라 장기 내내 1위</b>였습니다.<br>
-• <b>레버리지</b>: 3배 상품(TQQQ 43%·SOXL 42%·UPRO 33%)은 상승장에서 폭발하지만, <b>MDD가 -77~90%</b>로 참혹합니다.<br>
-• <b>SOXL(반도체 3배)의 역대 MDD -90.5%</b> = 1억이 <b>1천만원</b>이 된 순간이 있었다는 뜻.
-</div>
-
-<div class="warn">
-<b>⚠️ 레버리지·감쇠 경고</b>: 2·3배 상품은 <b>일간 리셋 구조</b>라 횡보·급락장에서 원지수보다 훨씬 불리하게 감쇠합니다.
-장기 보유 시 반드시 <b>적립식·분산·감당 가능한 규모</b>로. 백테스트 수치는 미래를 보장하지 않습니다.
-</div>
-</div>
-"""
-
 
 @st.cache_data(show_spinner=False)
 def _chart_data() -> pd.DataFrame:
@@ -194,8 +162,20 @@ def _partial_month_caption() -> None:
         st.caption("※ 마지막 달은 아직 끝나지 않은 진행 중 월입니다. 월말 확정 수익률이 아니며 오늘까지의 값입니다.")
 
 
+def _source_caption() -> None:
+    try:
+        meta = json.loads(_META.read_text(encoding="utf-8"))
+        generated = meta.get("generated_at_utc", "초기 내장 데이터")
+        st.caption(
+            f"데이터: {meta.get('market_data_source', '공개 시장 데이터')} · 갱신: {generated} · "
+            "매월 자동 무결성 검사 후 갱신"
+        )
+    except Exception:
+        st.caption("데이터: 내장 월별 참조 데이터")
+
+
 def _full_doc() -> bytes:
-    body = EXPLAIN + PRODUCTS_HTML + SUMMARY_HTML
+    body = EXPLAIN + PRODUCTS_HTML + _dynamic_summary_html()
     html = ("<!DOCTYPE html><html lang='ko'><head><meta charset='UTF-8'>"
             "<title>미국 지수 & 레버리지 상품 총정리</title></head>"
             "<body style='background:#0e1420;margin:0;padding:24px'>"
@@ -203,18 +183,68 @@ def _full_doc() -> bytes:
     return html.encode("utf-8")
 
 
+_PERF_PRODUCTS = [
+    ("SPY\n(S&P 1x)", "SPY(S&P 1x)"),
+    ("QQQ\n(나100 1x)", "QQQ(나100 1x)"),
+    ("QLD\n(2x)", "QLD(나100 2x)"),
+    ("UDOW\n(다우3x)", "UDOW(다우 3x)"),
+    ("UPRO\n(S&P 3x)", "UPRO(S&P 3x)"),
+    ("SOXL\n(반도체3x)", "SOXL(반도체 3x)"),
+    ("TQQQ\n(나100 3x)", "TQQQ(나100 3x)"),
+]
+
+
+def _performance_rows() -> list[dict]:
+    """참조 CSV에서 상장 후 성과를 동적으로 계산한다."""
+    df = _chart_data()
+    rows = []
+    for label, col in _PERF_PRODUCTS:
+        s = df[col].dropna()
+        years = (s.index[-1] - s.index[0]).days / 365.25
+        multiple = float(s.iloc[-1] / s.iloc[0])
+        annual = multiple ** (1.0 / years) - 1.0 if years > 0 else 0.0
+        drawdown = float((s / s.cummax() - 1.0).min())
+        rows.append({
+            "상품": label.replace("\n", " "),
+            "상장": int(s.index[0].year),
+            "누적배수": multiple,
+            "CAGR": annual,
+            "MDD": drawdown,
+        })
+    return rows
+
+
+def _dynamic_summary_html() -> str:
+    rows = _performance_rows()
+    body = "".join(
+        f"<tr><td>{r['상품']}</td><td>{r['상장']}</td><td>{r['누적배수']:.1f}배</td>"
+        f"<td>{r['CAGR']:.1%}</td><td class='neg'>{r['MDD']:.1%}</td></tr>"
+        for r in rows
+    )
+    return _CSS + f"""
+<div class="ir">
+<h2>📊 상장 이후 성과 · 위험 (참조 CSV에서 자동 계산)</h2>
+<table><tr><th>상품</th><th>시작연도</th><th>누적</th><th>CAGR</th><th>역대 MDD</th></tr>
+{body}</table>
+<div class="tip"><b>읽는 법</b>: 누적배수와 CAGR은 성장 속도, MDD는 투자 중 경험한
+최대 하락폭입니다. 수익률이 높아도 MDD가 -80%라면 1억원이 한때 2천만원까지 줄었다는 뜻입니다.</div>
+<div class="warn"><b>⚠️ 주의</b>: 상품별 시작일이 다르고 레버리지는 일간 재설정·비용·변동성 감쇠의
+영향을 받습니다. 상장 후 누적배수만 보고 같은 기간 성과로 오해하면 안 됩니다.</div>
+</div>"""
+
+
 def _fig_perf_risk():
-    """상장 후 CAGR(막대) vs 역대 MDD(빨간선) — 실측."""
-    names = ["SPY\n(S&P 1x)", "QQQ\n(나100 1x)", "QLD\n(2x)", "UDOW\n(다우3x)",
-             "UPRO\n(S&P 3x)", "SOXL\n(반도체3x)", "TQQQ\n(나100 3x)"]
-    cagrs = [10.8, 10.9, 25.5, 26.5, 33.0, 42.4, 43.4]
-    mdds = [-55, -83, -83, -80, -77, -90, -82]
+    """상장 후 CAGR(막대) vs 역대 MDD(빨간선) — 참조 CSV에서 계산."""
+    rows = _performance_rows()
+    names = [r["상품"].replace(" ", "\n", 1) for r in rows]
+    cagrs = [r["CAGR"] * 100 for r in rows]
+    mdds = [r["MDD"] * 100 for r in rows]
     colors = ["#4fc3f7", "#4fc3f7", "#ffb74d", "#ff8a65", "#ff8a65", "#d32f2f", "#d32f2f"]
     fig = go.Figure()
     fig.add_trace(go.Bar(x=names, y=cagrs, name="상장 후 CAGR(%)", marker_color=colors,
-                         text=[f"{c}%" for c in cagrs], textposition="outside"))
+                         text=[f"{c:.1f}%" for c in cagrs], textposition="outside"))
     fig.add_trace(go.Scatter(x=names, y=[-m for m in mdds], name="역대 최악 낙폭 |MDD|(%)",
-                             mode="lines+markers+text", text=[f"{m}%" for m in mdds],
+                             mode="lines+markers+text", text=[f"{m:.1f}%" for m in mdds],
                              textposition="top center", line=dict(color="#ff6e6e", dash="dot")))
     fig.update_layout(title="배수가 오를수록: 수익(막대)도 커지지만 낙폭(빨간선)은 -80~90%대로 수렴",
                       template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
@@ -226,6 +256,7 @@ def _fig_perf_risk():
 
 @st.dialog("📊 미국 지수 & 레버리지 상품 총정리", width="large")
 def _dlg_indices():
+    _source_caption()
     st.plotly_chart(_fig_perf_risk(), width="stretch")
     st.caption("👆 핵심 한 장: 3배 상품(TQQQ·SOXL)은 CAGR 40%대지만 **역대 낙폭 -82~-90%** — "
                "수익은 배수를 따라가고, 위험은 그보다 먼저 한계치에 도달합니다.")
@@ -263,11 +294,11 @@ def _dlg_indices():
         "같은 기간의 공정한 수익률 순위라기보다, 1995년 이후 시장 환경 속에서 실제 상품이 존재한 "
         "구간을 함께 살펴보는 차트입니다."
     )
-    st.html(SUMMARY_HTML)
-    st.success("✅ **최종 결론** — ① 1배 수익 서열: 반도체 > 나스닥100 > S&P500·나스닥종합 > 다우·러셀 (장기 일관). "
-               "② 3배는 '상승장 전용 부스터'일 뿐 — TQQQ 371배의 이면은 -82%, SOXL 320배의 이면은 **-90.5%**. "
-               "③ 추천 사고방식: **몇 배짜리를 살까**가 아니라 **-80%를 감당할 금액이 얼마인가**부터 정하고, "
-               "그 금액만 2~3배에, 나머지는 1배(QQQ·SPY)에. ④ 모든 배수 상품은 감쇠 때문에 '지수 회복=내 회복'이 아님을 기억하세요.")
+    st.html(_dynamic_summary_html())
+    st.success("✅ **최종 결론** — ① 누적수익과 CAGR만 보지 말고 MDD와 회복기간을 함께 보세요. "
+               "② 2·3배 상품은 상승장에서 빠르지만 일간 재설정과 변동성 감쇠로 장기 지수 배수와 달라집니다. "
+               "③ **몇 배짜리를 살까**보다 **큰 하락을 감당할 금액이 얼마인가**를 먼저 정하세요. "
+               "④ 표와 핵심 차트의 수치는 내장 CSV에서 자동 계산되므로 월간 데이터 갱신과 함께 바뀝니다.")
     st.download_button("📥 이 문서를 HTML로 저장 (새 탭에서 열기·공유·인쇄)", _full_doc(),
                        "us_indices_leverage.html", "text/html", width="stretch")
 

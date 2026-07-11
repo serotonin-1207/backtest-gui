@@ -1,0 +1,28 @@
+{
+  "dataset": "src/index_ref_data.csv",
+  "market_data_source": "Yahoo Finance adjusted monthly prices",
+  "methodology": "각 시계열의 첫 유효 월을 100으로 정규화한다. ETF 수정주가는 분배금과 분할을 반영한다. 진행 중 월은 오늘 날짜로 표시한다.",
+  "official_definition_sources": {
+    "S&P total return methodology": "https://www.spglobal.com/spdji/en/methodology/article/index-mathematics-methodology/",
+    "Nasdaq-100 Total Return definition (historical download restricted)": "https://indexes.nasdaq.com/Index/Overview/XNDX",
+    "ProShares leveraged ETFs": "https://www.proshares.com/our-etfs/leveraged-and-inverse",
+    "Direxion leveraged ETFs": "https://www.direxion.com/etfs"
+  },
+  "synthetic_expense_ratio_sources": {
+    "TQQQ and QLD": "https://www.proshares.com/our-etfs/leveraged-and-inverse",
+    "SPXL": "https://www.direxion.com/product/daily-sp-500-bull-bear-3x-etfs",
+    "SOXL": "https://www.direxion.com/product/daily-semiconductor-bull-bear-3x-etfs"
+  },
+  "generated_by": "scripts/update_index_reference.py",
+  "validation": "scripts/validate_reference_data.py",
+  "limitations": [
+    "Yahoo Finance는 공식 거래소 원장이 아닌 2차 시장 데이터 제공처다.",
+    "지수·ETF별 시작일이 달라 최종 누적값의 단순 순위 비교에는 적합하지 않다.",
+    "진행 중 월 수익률은 월말 확정값이 아니다."
+  ],
+  "generated_at_utc": "2026-07-11T09:02:38+00:00",
+  "rows": 1184,
+  "columns": 18,
+  "data_start": "1927-12-31",
+  "data_end_label": "2026-07-31"
+}

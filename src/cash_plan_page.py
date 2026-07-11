@@ -167,7 +167,7 @@ def render_cash_plan():
                                      compare_fee_rate=0.0025, calendar_basis=cal_basis))
         show_cols = ["시나리오", "1일투자금", "선투입소진일", "후순위사용기간", "세후RP수익",
                      "후순위이자비용", "이체수수료", "매수수수료", "최종순효과"]
-        st.dataframe(cmp[show_cols], hide_index=True, use_container_width=True,
+        st.dataframe(cmp[show_cols], hide_index=True, width="stretch",
                      column_config={c: st.column_config.NumberColumn(format="localized")
                                     for c in show_cols if cmp[c].dtype.kind == "f"})
         best = cmp.loc[cmp["최종순효과"].idxmax()]
@@ -183,22 +183,22 @@ def render_cash_plan():
         f1 = go.Figure(go.Scatter(x=df["거래일"], y=df["대기잔액"], fill="tozeroy",
                                   line=dict(color=ACCENT), name="대기잔액"))
         f1.update_layout(title="날짜별 남은 대기자금(RP 운용) 잔액", **_LAYOUT)
-        st.plotly_chart(f1, use_container_width=True)
+        st.plotly_chart(f1, width="stretch")
 
         f2 = go.Figure()
         f2.add_scatter(x=df["거래일"], y=df["누적투자금"], line=dict(color="#81C784"), name="누적 투자금")
         f2.update_layout(title="누적 투자금", **_LAYOUT)
-        st.plotly_chart(f2, use_container_width=True)
+        st.plotly_chart(f2, width="stretch")
 
         cc = st.columns(2)
         f3 = go.Figure(go.Scatter(x=df["거래일"], y=df["누적RP수익(세전)"],
                                   line=dict(color="#FFD54F"), name="누적 RP수익(세전)"))
         f3.update_layout(title="누적 RP 수익(세전)", **_LAYOUT)
-        cc[0].plotly_chart(f3, use_container_width=True)
+        cc[0].plotly_chart(f3, width="stretch")
         f4 = go.Figure(go.Scatter(x=df["거래일"], y=df["누적이자비용"],
                                   line=dict(color="#E57373"), name="누적 이자비용"))
         f4.update_layout(title="누적 후순위 이자비용", **_LAYOUT)
-        cc[1].plotly_chart(f4, use_container_width=True)
+        cc[1].plotly_chart(f4, width="stretch")
 
         # 최종 순효과 비교 막대
         cmp2 = compare_scenarios(dict(total=total, pre_amount=pre_amount, year_days=int(year_days),
@@ -208,7 +208,7 @@ def render_cash_plan():
         fb = go.Figure(go.Bar(x=cmp2["시나리오"], y=cmp2["최종순효과"], marker_color=colors,
                               text=[f"{v:,.0f}" for v in cmp2["최종순효과"]], textposition="outside"))
         fb.update_layout(title="시나리오별 최종 순효과 비교", **_LAYOUT)
-        st.plotly_chart(fb, use_container_width=True)
+        st.plotly_chart(fb, width="stretch")
 
     # ================= 종목별 · 예상평가
     with tabs[2]:
@@ -221,7 +221,7 @@ def render_cash_plan():
             rows.append({"종목": nm, "비중": w / 100, "배분 투자금": alloc,
                          "1일 투자금": alloc / days,
                          "매수수수료": alloc * buy_fee_rate})
-        st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True,
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch",
                      column_config={"비중": st.column_config.NumberColumn(format="percent"),
                                     "배분 투자금": st.column_config.NumberColumn(format="localized"),
                                     "1일 투자금": st.column_config.NumberColumn(format="localized"),
