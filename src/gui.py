@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import traceback
+from copy import copy
 from datetime import date
 from pathlib import Path
 
@@ -20,7 +21,7 @@ from .data_loader import (ASSET_PRESETS, INDEX_DIV_YIELD, PRICE_INDEX_TICKERS, S
 from .excel_export import build_excel
 from .interpret import interpret_results
 from .laoer_strategy import run_laoer
-from .metrics import summarize, xirr
+from .metrics import summarize, twr_index, xirr
 from .synthetic_etf import apply_dividend_addback, extend_with_synthetic
 from .tax_engine import compute_tax
 from .validation import validate_synthetic
@@ -28,7 +29,7 @@ from .validation import validate_synthetic
 OUT_DIR = Path(__file__).resolve().parent.parent / "output" / "reports"
 
 # 배포 버전 — 변경 사항을 올릴 때마다 갱신. 화면에 표시되어 "최신 반영 여부"를 눈으로 확인할 수 있음.
-APP_VERSION = "1.5.2 (2026-07-11) — 장기 누적수익률 차트를 지수·1배·2배·3배 동일 구성으로 보정"
+APP_VERSION = "1.6.0 (2026-07-11) — 계산 오류 보정, TWR 차트 통일, 지수 차트 해설 강화"
 
 MONEY_COLS = ["총투입금", "추가불입", "중도인출", "순투입금", "최종순자산", "총이자",
               "세금", "세후최종순자산", "매매비용"]
@@ -183,7 +184,8 @@ def _at(series, d) -> float:
     d = pd.Timestamp(d)
     if d in series.index and pd.notna(series.loc[d]):
         return float(series.loc[d])
-    pos = min(max(series.index.searchsorted(d), 0), len(series) - 1)
+    # 해당 날짜가 환율 휴장일이면 미래값을 당겨 쓰지 않고 직전 관측값을 사용한다.
+    pos = min(max(series.index.searchsorted(d, side="right") - 1, 0), len(series) - 1)
     v = series.iloc[pos]
     return float(v) if pd.notna(v) else float(series.dropna().iloc[-1])
 
@@ -197,8 +199,9 @@ def _effective_series(r, fx_on: bool, base_code: str):
             eq = eqa * fx
             cfs = [(d, a * _at(fx, d)) for d, a in r.cashflows]
             flows = {d: a * _at(fx, d) for d, a in r.flows.items()}
-            aret = eqa.iloc[-1] / eqa.iloc[0] - 1 if eqa.iloc[0] > 0 else 0.0
-            bret = eq.iloc[-1] / eq.iloc[0] - 1 if eq.iloc[0] > 0 else 0.0
+            # 적립·인출 효과를 제거한 동일한 TWR 기준으로 환율 기여도를 비교한다.
+            aret = float(twr_index(eqa, r.flows).iloc[-1] - 1.0)
+            bret = float(twr_index(eq, flows).iloc[-1] - 1.0)
             return eq, cfs, flows, base_code, bret - aret
     return eqa, list(r.cashflows), dict(r.flows), r.currency, None
 
@@ -771,21 +774,35 @@ def _render_backtest():
 
     # ---- 차트
     with tabs[2]:
+        # 요약표와 동일한 환율효과·현금흐름 기준의 복사본으로 차트를 그린다.
+        chart_results = []
+        for r in results:
+            cr = copy(r)
+            eq_eff, _, flows_eff, eff_ccy, _ = _effective_series(r, fx_on, base_code_s)
+            cr.equity = eq_eff
+            cr.flows = flows_eff
+            cr.currency = eff_ccy
+            if r.cash_series is not None:
+                raw_eq = r.equity.reindex(eq_eff.index).replace(0, pd.NA)
+                scale = (eq_eff / raw_eq).ffill().bfill()
+                cr.cash_series = r.cash_series.reindex(eq_eff.index) * scale
+            chart_results.append(cr)
+
         c1, _ = st.columns([1, 3])
         log_scale = c1.toggle("로그 스케일", value=False,
                               help="세로축을 배수 기준으로 — 장기 복리 비교 시 필수")
         normalize = c1.toggle("시작=100 정규화", value=True)
-        st.plotly_chart(fig_equity(results, log_scale, normalize), use_container_width=True)
-        st.plotly_chart(fig_drawdown(results), use_container_width=True)
+        st.plotly_chart(fig_equity(chart_results, log_scale, normalize), use_container_width=True)
+        st.plotly_chart(fig_drawdown(chart_results), use_container_width=True)
         cc1, cc2 = st.columns(2)
-        conv_vals = [convert(r.final_value, r.currency, target_cur, fx_rates) for r in results]
-        cc1.plotly_chart(fig_final_values(results, conv_vals, target_cur), use_container_width=True)
-        cc2.plotly_chart(fig_annual_returns(results), use_container_width=True)
+        conv_vals = [convert(r.final_value, r.currency, target_cur, fx_rates) for r in chart_results]
+        cc1.plotly_chart(fig_final_values(chart_results, conv_vals, target_cur), use_container_width=True)
+        cc2.plotly_chart(fig_annual_returns(chart_results), use_container_width=True)
         pick = st.selectbox("월별 히트맵 전략", [r.name for r in results])
-        target = next(r for r in results if r.name == pick)
+        target = next(r for r in chart_results if r.name == pick)
         st.plotly_chart(fig_monthly_heatmap(target), use_container_width=True)
-        if any(r.cash_series is not None for r in results):
-            st.plotly_chart(fig_cash_ratio(results), use_container_width=True)
+        if any(r.cash_series is not None for r in chart_results):
+            st.plotly_chart(fig_cash_ratio(chart_results), use_container_width=True)
 
     # ---- 현금흐름
     with tabs[3]:

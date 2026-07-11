@@ -29,7 +29,11 @@ def fig_equity(results: list, log_scale: bool = False, normalize: bool = True) -
     fig = go.Figure()
     for i, r in enumerate(results):
         eq = r.equity.dropna()
-        y = eq / eq.iloc[0] * 100 if normalize and eq.iloc[0] > 0 else eq
+        if normalize:
+            from .metrics import twr_index
+            y = twr_index(eq, r.flows) * 100
+        else:
+            y = eq
         name = r.name + (" [합성포함]" if r.is_synthetic_used else "")
         fig.add_trace(go.Scatter(x=eq.index, y=y, name=name,
                                  line=dict(color=color_of(i), width=1.8)))
@@ -54,8 +58,9 @@ def fig_drawdown(results: list) -> go.Figure:
     """언더워터(drawdown) 플롯."""
     fig = go.Figure()
     for i, r in enumerate(results):
-        eq = r.equity.dropna()
-        dd = eq / eq.cummax() - 1.0
+        from .metrics import twr_index
+        perf = twr_index(r.equity.dropna(), r.flows)
+        dd = perf / perf.cummax() - 1.0
         fig.add_trace(go.Scatter(x=dd.index, y=dd * 100, name=r.name,
                                  fill="tozeroy", line=dict(color=color_of(i), width=1)))
     fig.update_layout(title="언더워터 플롯 (고점 대비 낙폭 %)", **_LAYOUT)
@@ -76,10 +81,10 @@ def fig_final_values(results: list, values: list | None = None, unit: str = "") 
 
 
 def fig_annual_returns(results: list) -> go.Figure:
-    from .metrics import annual_returns
+    from .metrics import annual_returns, twr_index
     fig = go.Figure()
     for i, r in enumerate(results):
-        ar = annual_returns(r.equity.dropna())
+        ar = annual_returns(twr_index(r.equity.dropna(), r.flows))
         fig.add_trace(go.Bar(x=ar.index.astype(str), y=ar * 100, name=r.name,
                              marker_color=color_of(i)))
     fig.update_layout(title="연도별 수익률 (%)", barmode="group", **_LAYOUT)
@@ -87,8 +92,8 @@ def fig_annual_returns(results: list) -> go.Figure:
 
 
 def fig_monthly_heatmap(result) -> go.Figure:
-    from .metrics import monthly_returns_table
-    tbl = monthly_returns_table(result.equity.dropna())
+    from .metrics import monthly_returns_table, twr_index
+    tbl = monthly_returns_table(twr_index(result.equity.dropna(), result.flows))
     fig = go.Figure(go.Heatmap(
         z=tbl.values * 100, x=[f"{m}월" for m in tbl.columns], y=tbl.index.astype(str),
         colorscale="RdBu", zmid=0, colorbar=dict(title="%"),

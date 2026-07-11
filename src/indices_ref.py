@@ -103,7 +103,17 @@ SUMMARY_HTML = _CSS + """
 
 @st.cache_data(show_spinner=False)
 def _chart_data() -> pd.DataFrame:
-    return pd.read_csv(_DATA, index_col=0, parse_dates=True)
+    df = pd.read_csv(_DATA, index_col=0, parse_dates=True)
+    # 진행 중인 월을 월말로 라벨링한 값이 미래 데이터처럼 보이지 않게 오늘로 보정한다.
+    today = pd.Timestamp.today().normalize()
+    future = df.index > today
+    df.attrs["partial_month_adjusted"] = bool(future.any())
+    if future.any():
+        idx = df.index.to_series()
+        idx.loc[future] = today
+        df.index = pd.DatetimeIndex(idx)
+        df = df[~df.index.duplicated(keep="last")].sort_index()
+    return df
 
 
 _IDX_COLS = ["S&P500", "나스닥100", "나스닥종합", "다우존스", "러셀2000", "반도체(SOX)"]
@@ -179,6 +189,11 @@ def _period_label(columns: list[str] | None = None, start: str | None = None) ->
     return f"기간: {valid.index.min():%Y-%m} ~ {valid.index.max():%Y-%m}"
 
 
+def _partial_month_caption() -> None:
+    if _chart_data().attrs.get("partial_month_adjusted"):
+        st.caption("※ 마지막 달은 아직 끝나지 않은 진행 중 월입니다. 월말 확정 수익률이 아니며 오늘까지의 값입니다.")
+
+
 def _full_doc() -> bytes:
     body = EXPLAIN + PRODUCTS_HTML + SUMMARY_HTML
     html = ("<!DOCTYPE html><html lang='ko'><head><meta charset='UTF-8'>"
@@ -218,15 +233,36 @@ def _dlg_indices():
     st.html(PRODUCTS_HTML)
     st.markdown("### 📈 누적 수익률 차트 (상장 시점부터)")
     st.markdown(f"**{_period_label()}**")
+    _partial_month_caption()
     st.caption("각 상품을 상장 시점 100으로 맞춘 로그스케일 누적수익. 범례를 클릭하면 켜고 끌 수 있습니다. "
                "회색 점선=원지수, 파랑=1배, 주황=2배, 빨강=3배.")
     st.plotly_chart(_fig(), width="stretch")
+    st.info(
+        "**1번 차트는 무엇인가요?** 각 지수와 ETF가 실제 데이터에 처음 등장한 날을 각각 100으로 놓고, "
+        "상장 후 얼마나 늘거나 줄었는지 보여줍니다.\n\n"
+        "**읽는 방법:** 100→500은 5배(+400%), 100→50은 반 토막(-50%)입니다. "
+        "회색 점선은 원지수, 파랑은 1배, 주황은 2배, 빨강은 3배입니다. 세로축은 로그라서 "
+        "100→200과 1,000→2,000이 같은 높이로 보입니다.\n\n"
+        "**주의:** 상품마다 시작일이 달라 최종 높이만으로 누가 더 우수한지 단순 비교하면 안 됩니다. "
+        "이 차트는 각 상품의 '실제 생존 기간 전체'와 장기 낙폭·회복 모습을 확인하는 용도입니다."
+    )
     st.markdown("### 📈 누적 수익률 차트 (1990년대부터)")
     st.markdown(f"**{_period_label(start='1995-01-01')}**")
+    _partial_month_caption()
     st.caption("1번과 동일한 원지수·1배·2배·3배 상품 전체 구성입니다. 각 시계열은 1995년 이후 "
                "첫 유효값을 100으로 맞췄으며, 1995년 이후 상장한 ETF는 실제 상장 시점부터 표시됩니다. "
                "회색 점선=원지수, 파랑=1배, 주황=2배, 빨강=3배.")
     st.plotly_chart(_fig_since_1990s(), width="stretch")
+    st.info(
+        "**2번 차트는 무엇인가요?** 1995년 이후 구간만 잘라 1번과 똑같은 18개 시계열을 보여줍니다. "
+        "원지수는 1995년 첫 값을 100으로, 이후 상장한 ETF는 실제 상장 후 첫 값을 100으로 놓습니다.\n\n"
+        "**읽는 방법:** 닷컴 버블, 금융위기, 코로나, 2022년 긴축 같은 위기에서 선이 얼마나 깊게 "
+        "떨어지고 얼마나 오래 회복하지 못했는지 보세요. 빨간 3배선은 상승장에서 빠르지만 하락장에서 "
+        "훨씬 깊게 무너지는 구조를 확인하는 데 유용합니다.\n\n"
+        "**주의:** 상장 전 ETF 수익을 가상으로 만들지 않았기 때문에 ETF별 출발일은 여전히 다릅니다. "
+        "같은 기간의 공정한 수익률 순위라기보다, 1995년 이후 시장 환경 속에서 실제 상품이 존재한 "
+        "구간을 함께 살펴보는 차트입니다."
+    )
     st.html(SUMMARY_HTML)
     st.success("✅ **최종 결론** — ① 1배 수익 서열: 반도체 > 나스닥100 > S&P500·나스닥종합 > 다우·러셀 (장기 일관). "
                "② 3배는 '상승장 전용 부스터'일 뿐 — TQQQ 371배의 이면은 -82%, SOXL 320배의 이면은 **-90.5%**. "

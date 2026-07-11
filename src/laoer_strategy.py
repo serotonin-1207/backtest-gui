@@ -108,6 +108,10 @@ def run_laoer(
     def do_buy(spend: float, price: float) -> None:
         """호가(price) 기준으로 매수 + 거래비용 차감. 전략 로직(평단·cum_buy)은 호가 기준 유지."""
         nonlocal shares, avg, cum_buy, cash
+        # 거래비용까지 포함해 보유 현금을 넘지 않도록 방어한다.
+        spend = min(spend, cash / (1.0 + c)) if c > 0 else min(spend, cash)
+        if spend <= 0:
+            return
         q = spend / price
         avg = (avg * shares + spend) / (shares + q) if (shares + q) > 0 else price
         shares += q
@@ -174,14 +178,16 @@ def run_laoer(
                 else:  # 다음 세트부터 반영
                     pending_contrib += e["amount"]
             else:  # 인출: 현금 우선, 부족 시 주식 일부 매도
-                take = min(e["amount"], cash + shares * px)
+                liquidation_value = max(cash, 0.0) + shares * px * (1.0 - c)
+                take = min(e["amount"], liquidation_value)
                 if take <= 0:
                     continue
                 from_cash = min(cash, take)
                 cash -= from_cash
                 remain = take - from_cash
                 if remain > 0 and shares > 0:
-                    q = min(shares, remain / px)
+                    unit_net = px * (1.0 - c)
+                    q = min(shares, remain / unit_net) if unit_net > 0 else 0.0
                     do_sell(q, px, dt)
                 res.cashflows.append((dt, take))
                 res.total_withdraw += take

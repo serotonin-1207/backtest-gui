@@ -87,10 +87,11 @@ def tax_category(ticker: str, currency: str) -> str:
     """자산 유형별 세금 카테고리 판정.
     us_overseas(미국 22%) / kr_etf(15.4%) / kr_stock(비과세) / none(지수)."""
     t = ticker.strip().upper()
+    # 지수는 직접 매매 상품이 아니므로 통화와 관계없이 과세 대상에서 제외한다.
+    if t.startswith("^") or t in _KR_INDEX:
+        return "none"
     if currency == "USD":
         return "us_overseas"
-    if t in _KR_INDEX:
-        return "none"
     if t in KR_ETF_TICKERS:
         return "kr_etf"
     if re.fullmatch(r"\d{6}", t):

@@ -16,6 +16,8 @@ TRADING_DAYS = 252
 def synthesize_close(base_close: pd.Series, leverage: float, annual_fee: float = 0.0) -> pd.Series:
     """기초지수 일간 수익률 x 배수 - 일할 보수 로 합성 종가 시계열 생성 (시작값 100)."""
     daily = base_close.pct_change().fillna(0.0) * leverage - annual_fee / TRADING_DAYS
+    if not daily.empty:
+        daily.iloc[0] = 0.0
     return 100.0 * (1.0 + daily).cumprod()
 
 
@@ -28,6 +30,8 @@ def apply_dividend_addback(ohlc: pd.DataFrame, annual_yield: float) -> pd.DataFr
         return ohlc
     close = ohlc["Close"].astype(float)
     daily = close.pct_change().fillna(0.0) + annual_yield / TRADING_DAYS
+    if not daily.empty:
+        daily.iloc[0] = 0.0
     tr = close.iloc[0] * (1.0 + daily).cumprod()
     scale = (tr / close).values
     out = ohlc.copy()
