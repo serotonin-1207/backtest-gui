@@ -53,13 +53,14 @@ def snap_to_trading_day(d: pd.Timestamp, idx: pd.DatetimeIndex):
 
 def dca_schedule(start: pd.Timestamp, idx: pd.DatetimeIndex, freq: str,
                  years: float | None) -> list[pd.Timestamp]:
-    """적립 매수일 목록. freq: 매일/매주/매월/매년, years: 적립 기간(None=전체)."""
+    """적립 매수일 목록. freq: 매일/매주/매월/매분기/매년, years: 적립 기간(None=전체)."""
     end = idx[-1]
     if years:
         end = min(end, start + pd.DateOffset(days=int(years * 365.25)))
     if freq == "매일":
         return [d for d in idx if start <= d <= end]
     offset = {"매주": pd.DateOffset(weeks=1), "매월": pd.DateOffset(months=1),
+              "매분기": pd.DateOffset(months=3),
               "매년": pd.DateOffset(years=1)}[freq]
     raw = pd.date_range(start, end, freq=offset)
     seen, out = set(), []

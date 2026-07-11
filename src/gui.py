@@ -30,7 +30,7 @@ from .validation import validate_intraday_ohlc, validate_synthetic
 OUT_DIR = Path(__file__).resolve().parent.parent / "output" / "reports"
 
 # 배포 버전 — 변경 사항을 올릴 때마다 갱신. 화면에 표시되어 "최신 반영 여부"를 눈으로 확인할 수 있음.
-APP_VERSION = "1.7.0 (2026-07-11) — 연도별 세금·체결검증·참조데이터 자동화·CI"
+APP_VERSION = "1.8.0 (2026-07-11) — 롤링 검증 기반 최적의 투자 루틴 추천"
 
 MONEY_COLS = ["총투입금", "추가불입", "중도인출", "순투입금", "최종순자산", "총이자",
               "세금", "세후최종순자산", "매매비용"]
@@ -356,7 +356,11 @@ def render():
         st.caption("문의 사항이나 수정 요청은 위 이메일로 보내주세요.")
         st.caption(f"🔖 버전 {APP_VERSION}")
         st.divider()
-        app_mode = st.radio("🧭 모드", ["📈 가격 백테스트", "💵 적립식 현금관리 계산기"], key="app_mode")
+        app_mode = st.radio(
+            "🧭 모드",
+            ["📈 가격 백테스트", "🎯 최적의 투자 루틴 추천", "💵 적립식 현금관리 계산기"],
+            key="app_mode",
+        )
         st.divider()
 
     # 상단 고정 — 투자 가이드/리포트 (클릭 시 팝업)
@@ -367,6 +371,10 @@ def render():
     if app_mode.startswith("💵"):
         from .cash_plan_page import render_cash_plan
         render_cash_plan()
+        return
+    if app_mode.startswith("🎯"):
+        from .routine_optimizer_page import render_routine_optimizer
+        render_routine_optimizer()
         return
     _render_backtest()
 

@@ -6,6 +6,7 @@ import pandas as pd
 
 from src.backtest_engine import BacktestResult, run_backtest
 from src.cash_plan import run_scenario
+from src.cashflow_engine import dca_schedule
 from src.charts import fig_equity
 from src.currency import convert
 from src.data_loader import tax_category
@@ -15,9 +16,80 @@ from src.laoer_strategy import run_laoer
 from src.metrics import cagr, mdd, twr_index, xirr
 from src.synthetic_etf import apply_dividend_addback, synthesize_close
 from src.tax_engine import apply_annual_tax_drag, compute_tax, tax_schedule_asset
+from src.routine_optimizer import (
+    _contribution_result,
+    _fast_xirr,
+    _laoer_result,
+    dimension_winners,
+    optimize_routines,
+)
 
 
 class CoreRegressionTests(unittest.TestCase):
+    def test_quarterly_schedule_is_supported(self):
+        idx = pd.bdate_range("2020-01-01", "2021-01-05")
+        schedule = dca_schedule(idx[0], idx, "매분기", None)
+        self.assertGreaterEqual(len(schedule), 4)
+        self.assertLessEqual(len(schedule), 6)
+
+    def test_fast_xirr_matches_reference_xirr(self):
+        flows = [
+            (pd.Timestamp("2020-01-01"), -50.0),
+            (pd.Timestamp("2020-06-01"), -25.0),
+            (pd.Timestamp("2021-01-01"), -25.0),
+            (pd.Timestamp("2023-01-01"), 150.0),
+        ]
+        self.assertAlmostEqual(_fast_xirr(flows), xirr(flows), places=7)
+
+    def test_flat_market_routines_preserve_principal_without_fees(self):
+        idx = pd.bdate_range("2020-01-01", "2022-01-03")
+        close = pd.Series(100.0, index=idx)
+        for strategy, frequency in (
+            ("거치식", "1회"),
+            ("적립식", "매월"),
+            ("거치식 후 적립식", "매분기"),
+        ):
+            result = _contribution_result(close, strategy, frequency, 0.5, 0.0)
+            self.assertAlmostEqual(result["배수"], 1.0)
+
+    def test_routine_optimizer_returns_ranked_candidates(self):
+        idx = pd.bdate_range("2010-01-01", "2024-12-31")
+        close = pd.Series(
+            100.0 * (1.0004 ** pd.RangeIndex(len(idx))), index=idx
+        )
+        ohlc = pd.DataFrame({"Close": close, "High": close}, index=idx)
+        results = optimize_routines(
+            {"QQQ": ohlc, "QLD": ohlc * 1.0},
+            [1, 2],
+            step_months=12,
+            fee_bp=0,
+            min_windows=5,
+        )
+        self.assertFalse(results.empty)
+        self.assertTrue(results["종합점수"].is_monotonic_decreasing)
+        winners = dimension_winners(results)
+        self.assertEqual(
+            set(winners), {"전체", "투자주기", "투자기간", "자산", "투자방식"}
+        )
+
+    def test_fast_laoer_matches_full_engine_without_events(self):
+        idx = pd.bdate_range("2020-01-01", periods=500)
+        close = pd.Series(
+            100.0 * (1.0003 ** pd.RangeIndex(len(idx))), index=idx
+        )
+        ohlc = pd.DataFrame({"Close": close, "High": close * 1.005}, index=idx)
+        fast = _laoer_result(ohlc, 5.0, "V2.2", 20.0)
+        full = run_laoer(
+            ohlc,
+            "full",
+            1.0,
+            fee_bp=5.0,
+            fill_buffer_bp=20.0,
+            version="V2.2",
+        )
+        self.assertAlmostEqual(fast["배수"], full.final_value, places=9)
+        self.assertAlmostEqual(fast["MDD"], mdd(full.equity), places=9)
+
     def test_metric_closed_forms(self):
         idx = pd.to_datetime(["2024-01-01", "2024-12-31"])
         equity = pd.Series([100.0, 110.0], index=idx)

@@ -4,6 +4,7 @@ plotly>=5.24
 # Python 3.14 클라우드에서 Segmentation fault를 일으킴. 검증된 조합으로 재현성 확보.
 pandas>=2.2,<3
 numpy>=2.0,<2.5
+scipy>=1.13,<2
 pyarrow>=17,<24
 yfinance>=0.2.50
 finance-datareader>=0.9.90
