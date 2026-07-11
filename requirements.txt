@@ -1,11 +1,13 @@
 streamlit>=1.40
 plotly>=5.24
-pandas>=2.2
-numpy>=1.26
+# 네이티브(C확장) 패키지는 상한 고정 — 미고정 시 최신 조합(pandas3.0/numpy2.5/pyarrow24)이
+# Python 3.14 클라우드에서 Segmentation fault를 일으킴. 검증된 조합으로 재현성 확보.
+pandas>=2.2,<3
+numpy>=2.0,<2.5
+pyarrow>=17,<24
 yfinance>=0.2.50
 finance-datareader>=0.9.90
 xlsxwriter>=3.2
-pyarrow>=17
 python-dotenv>=1.0
 PyYAML>=6.0
 tabulate>=0.9
