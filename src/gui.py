@@ -28,7 +28,7 @@ from .validation import validate_synthetic
 OUT_DIR = Path(__file__).resolve().parent.parent / "output" / "reports"
 
 # 배포 버전 — 변경 사항을 올릴 때마다 갱신. 화면에 표시되어 "최신 반영 여부"를 눈으로 확인할 수 있음.
-APP_VERSION = "1.4.2 (2026-07-11) — 지수별 폭락표 확장·'왜 나스닥100(QQQ)' 1배 지수 비교 팝업 추가"
+APP_VERSION = "1.4.3 (2026-07-11) — 미국 지수·레버리지(1/2/3배) 총정리 팝업+누적수익률 차트 추가"
 
 MONEY_COLS = ["총투입금", "추가불입", "중도인출", "순투입금", "최종순자산", "총이자",
               "세금", "세후최종순자산", "매매비용"]
@@ -324,6 +324,8 @@ def _render_backtest():
         with st.expander("📉 주요 지수 폭락 구간 (참고)"):
             st.caption("시작/종료일 잡을 때 참고하세요. 실측 기준이며 지수마다 고점·저점 날짜는 조금씩 다릅니다.")
             st.markdown(_CRASH_REF_MD)
+        from .indices_ref import render_indices_button
+        render_indices_button()
 
         modes = st.multiselect("투자 방식 (자산마다 각각 적용)",
                                ["거치식", "적립식", "라오어"], default=["거치식", "적립식"],
