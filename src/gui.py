@@ -28,7 +28,7 @@ from .validation import validate_synthetic
 OUT_DIR = Path(__file__).resolve().parent.parent / "output" / "reports"
 
 # 배포 버전 — 변경 사항을 올릴 때마다 갱신. 화면에 표시되어 "최신 반영 여부"를 눈으로 확인할 수 있음.
-APP_VERSION = "1.4.3 (2026-07-11) — 미국 지수·레버리지(1/2/3배) 총정리 팝업+누적수익률 차트 추가"
+APP_VERSION = "1.4.4 (2026-07-11) — 참고 자료(폭락구간·지수총정리·도움말·용어사전)를 메인 화면 상단으로 이동"
 
 MONEY_COLS = ["총투입금", "추가불입", "중도인출", "순투입금", "최종순자산", "총이자",
               "세금", "세후최종순자산", "매매비용"]
@@ -57,6 +57,40 @@ _CRASH_REF_MD = """
 def _fmt_rate(x: float) -> str:
     """환율 표시: 1 이상은 소수 2자리, 1 미만은 유효숫자 유지 (1 KRW = 0.000663 USD)."""
     return f"{x:,.2f}" if x >= 1 else f"{x:.6f}"
+
+
+@st.dialog("📉 주요 지수 폭락 구간 (참고)", width="large")
+def _dlg_crash():
+    st.caption("백테스트 시작/종료일 잡을 때 참고하세요. 실측 기준이며 지수마다 고점·저점 날짜는 조금씩 다릅니다.")
+    st.markdown(_CRASH_REF_MD)
+
+
+@st.dialog("❓ 도움말 · 옵션 설명", width="large")
+def _dlg_help():
+    for k, v in HELP.items():
+        st.markdown(f"**{k}** — {v}")
+
+
+@st.dialog("📚 용어 사전", width="large")
+def _dlg_glossary():
+    for k, v in GLOSSARY.items():
+        st.markdown(f"**{k}**  \n{v}")
+
+
+def _render_reference_bar():
+    """메인 화면 상단(투자 전 필독 아래) 참고 자료 버튼 모음 — 누르면 팝업."""
+    from .indices_ref import render_indices_button
+    with st.container(border=True):
+        st.markdown("#### 📖 참고 자료")
+        c1, c2 = st.columns(2)
+        if c1.button("📉 주요 지수 폭락 구간 (참고)", use_container_width=True, key="btn_ref_crash"):
+            _dlg_crash()
+        render_indices_button(c2)
+        c3, c4 = st.columns(2)
+        if c3.button("❓ 도움말 · 옵션 설명", use_container_width=True, key="btn_ref_help"):
+            _dlg_help()
+        if c4.button("📚 용어 사전", use_container_width=True, key="btn_ref_glossary"):
+            _dlg_glossary()
 
 
 def _add_custom_ticker():
@@ -276,6 +310,7 @@ def render():
     # 상단 고정 — 투자 가이드/리포트 (클릭 시 팝업)
     from .guide import render_pinned_guides
     render_pinned_guides()
+    _render_reference_bar()
 
     if app_mode.startswith("💵"):
         from .cash_plan_page import render_cash_plan
@@ -321,11 +356,7 @@ def _render_backtest():
         c1, c2 = st.columns(2)
         start_date = c1.date_input("시작일", date(2015, 1, 1), min_value=date(1980, 1, 1))
         end_date = c2.date_input("종료일", date.today())
-        with st.expander("📉 주요 지수 폭락 구간 (참고)"):
-            st.caption("시작/종료일 잡을 때 참고하세요. 실측 기준이며 지수마다 고점·저점 날짜는 조금씩 다릅니다.")
-            st.markdown(_CRASH_REF_MD)
-        from .indices_ref import render_indices_button
-        render_indices_button()
+        st.caption("📉 폭락 구간·지수 총정리·도움말·용어사전은 상단 '참고 자료'에서 볼 수 있습니다.")
 
         modes = st.multiselect("투자 방식 (자산마다 각각 적용)",
                                ["거치식", "적립식", "라오어"], default=["거치식", "적립식"],
@@ -420,12 +451,6 @@ def _render_backtest():
                 clear_cache(None)
                 st.success("전체 캐시 삭제 완료")
 
-        with st.expander("❓ 도움말 · 옵션 설명"):
-            for k, v in HELP.items():
-                st.markdown(f"**{k}** — {v}")
-        with st.expander("📚 용어 사전"):
-            for k, v in GLOSSARY.items():
-                st.markdown(f"**{k}**  \n{v}")
 
     # ================================================== 실행
     if run_btn:
