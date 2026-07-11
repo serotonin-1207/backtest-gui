@@ -30,18 +30,25 @@ from .validation import validate_intraday_ohlc, validate_synthetic
 OUT_DIR = Path(__file__).resolve().parent.parent / "output" / "reports"
 
 # 배포 버전 — 변경 사항을 올릴 때마다 갱신. 화면에 표시되어 "최신 반영 여부"를 눈으로 확인할 수 있음.
-APP_VERSION = "1.8.0 (2026-07-11) — 롤링 검증 기반 최적의 투자 루틴 추천"
+APP_VERSION = "1.9.0 (2026-07-11) — 빠른 기간 버튼(1~30년)·주요 폭락 시작일 버튼(닷컴~트럼프관세), 폭락표에 트럼프 관세 추가"
 
 MONEY_COLS = ["총투입금", "추가불입", "중도인출", "순투입금", "최종순자산", "총이자",
               "세금", "세후최종순자산", "매매비용"]
 
 # 주요 지수 실측 폭락 낙폭 비교 — 시작/종료일 선택 참고용 (고점→저점 낙폭 %)
 _CRASH_EVENTS = ["닷컴버블\n2000-03~2002-10", "금융위기\n2007-10~2009-03",
-                 "코로나\n2020-02~2020-03", "2022 긴축\n2021-11~2022-12"]
-_CRASH_DATA = {   # 지수: [닷컴, 금융위기, 코로나, 긴축] 낙폭 %
-    "S&P500": [-49, -57, -34, -25], "나스닥100(QQQ)": [-83, -54, -28, -36],
-    "나스닥종합": [-78, -56, -30, -36], "다우존스": [-38, -54, -37, -22],
-    "반도체(SOX)": [-84, -69, -35, -46], "코스피": [-56, -55, -36, -34],
+                 "코로나\n2020-02~2020-03", "2022 긴축\n2021-11~2022-12",
+                 "트럼프 관세\n2025-02~2025-04"]
+_CRASH_DATA = {   # 지수: [닷컴, 금융위기, 코로나, 긴축, 관세] 낙폭 %
+    "S&P500": [-49, -57, -34, -25, -19], "나스닥100(QQQ)": [-83, -54, -28, -36, -23],
+    "나스닥종합": [-78, -56, -30, -36, -24], "다우존스": [-38, -54, -37, -22, -16],
+    "반도체(SOX)": [-84, -69, -35, -46, -35], "코스피": [-56, -55, -36, -34, -14],
+}
+# 사건별 시장 고점일(시작일 버튼용) — '최고점부터 현재까지'
+_CRASH_PEAKS = {
+    "닷컴버블": date(2000, 3, 24), "금융위기(리먼)": date(2007, 10, 9),
+    "코로나19": date(2020, 2, 19), "2022 긴축": date(2021, 11, 19),
+    "트럼프 관세": date(2025, 2, 19),
 }
 _CRASH_REF_MD = """
 **지수별 최대 낙폭 — 사건 · 기간(연도) 기준**
@@ -52,15 +59,17 @@ _CRASH_REF_MD = """
 | 금융위기 **2007-10 → 2009-03** | -57% | -54% | -56% | -54% | -69% | -55% |
 | 코로나 **2020-02 → 2020-03** | -34% | -28% | -30% | -37% | -35% | -36% |
 | 2022 긴축 **2021-11 → 2022-12** | -25% | -36% | -36% | -22% | -46% | -34% |
+| 트럼프 관세 **2025-02 → 2025-04** | -19% | -23% | -24% | -16% | **-35%** | -14% |
 
 **전고점 회복까지 걸린 시간 (연도)**
 
-| 사건 | 저점 연도 | 회복 연도 | 소요 |
+| 사건 | 저점 시점 | 회복 시점 | 소요 |
 |---|---|---|---|
-| 닷컴버블 | 2002 | S&P 2007 · 나스닥100 **2015** | 5~**13년** |
-| 금융위기 | 2009 | 2011~2013 | 2~4년 |
-| 코로나 | 2020-03 | 2020-06~11 | **3~9개월** (가장 빠름) |
+| 닷컴버블 | 2002-10 | S&P 2007 · 나스닥100 **2015** | 5~**13년** |
+| 금융위기 | 2009-03 | 2011~2013 | 2~4년 |
+| 코로나 | 2020-03 | 2020-06~11 | **3~9개월** |
 | 2022 긴축 | 2022-10/12 | 2023-12~2024 (코스피 2025) | 1~3년 |
+| 트럼프 관세 | 2025-04 | 2025-05~07 | **1~4개월** (매우 빠름) |
 """
 
 
@@ -159,6 +168,23 @@ def _add_custom_ticker():
 def _remove_custom_ticker(i: int):
     if 0 <= i < len(st.session_state.custom_tickers):
         st.session_state.custom_tickers.pop(i)
+
+
+def _bt_set_years(n: int):
+    """빠른 기간 버튼 — 현재 기준 n년 전 ~ 오늘."""
+    t = date.today()
+    try:
+        s = t.replace(year=t.year - n)
+    except ValueError:          # 2/29 등
+        s = t.replace(year=t.year - n, day=28)
+    st.session_state.bt_start_date = s
+    st.session_state.bt_end_date = t
+
+
+def _bt_set_crash(peak: date):
+    """폭락 버튼 — 시장 최고점 ~ 오늘."""
+    st.session_state.bt_start_date = peak
+    st.session_state.bt_end_date = date.today()
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -414,9 +440,24 @@ def _render_backtest():
                                help=HELP["시작기준"])
         same_start = start_basis.startswith("동일")
 
+        st.session_state.setdefault("bt_start_date", date(2015, 1, 1))
+        st.session_state.setdefault("bt_end_date", date.today())
         c1, c2 = st.columns(2)
-        start_date = c1.date_input("시작일", date(2015, 1, 1), min_value=date(1980, 1, 1))
-        end_date = c2.date_input("종료일", date.today())
+        start_date = c1.date_input("시작일", key="bt_start_date", min_value=date(1980, 1, 1))
+        end_date = c2.date_input("종료일", key="bt_end_date")
+
+        st.caption("⏱️ 빠른 기간 (현재 기준)")
+        yrs = [1, 5, 10, 15, 20, 25, 30]
+        yc = st.columns(len(yrs))
+        for i, n in enumerate(yrs):
+            yc[i].button(f"{n}년", key=f"btn_yr_{n}", width="stretch",
+                         on_click=_bt_set_years, args=(n,))
+        st.caption("📉 주요 폭락 시작일 → 현재 (최고점부터 물렸을 때)")
+        cc = st.columns(len(_CRASH_PEAKS))
+        for i, (nm, pk) in enumerate(_CRASH_PEAKS.items()):
+            cc[i].button(nm.split("(")[0], key=f"btn_crash_{i}", width="stretch",
+                         on_click=_bt_set_crash, args=(pk,),
+                         help=f"{nm} 시장 최고점 {pk} → 현재")
         st.caption("📉 폭락 구간·지수 총정리·도움말·용어사전은 상단 '참고 자료'에서 볼 수 있습니다.")
 
         modes = st.multiselect("투자 방식 (자산마다 각각 적용)",
