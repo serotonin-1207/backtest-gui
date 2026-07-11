@@ -140,8 +140,32 @@ def _full_doc() -> bytes:
     return html.encode("utf-8")
 
 
+def _fig_perf_risk():
+    """상장 후 CAGR(막대) vs 역대 MDD(빨간선) — 실측."""
+    names = ["SPY\n(S&P 1x)", "QQQ\n(나100 1x)", "QLD\n(2x)", "UDOW\n(다우3x)",
+             "UPRO\n(S&P 3x)", "SOXL\n(반도체3x)", "TQQQ\n(나100 3x)"]
+    cagrs = [10.8, 10.9, 25.5, 26.5, 33.0, 42.4, 43.4]
+    mdds = [-55, -83, -83, -80, -77, -90, -82]
+    colors = ["#4fc3f7", "#4fc3f7", "#ffb74d", "#ff8a65", "#ff8a65", "#d32f2f", "#d32f2f"]
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=names, y=cagrs, name="상장 후 CAGR(%)", marker_color=colors,
+                         text=[f"{c}%" for c in cagrs], textposition="outside"))
+    fig.add_trace(go.Scatter(x=names, y=[-m for m in mdds], name="역대 최악 낙폭 |MDD|(%)",
+                             mode="lines+markers+text", text=[f"{m}%" for m in mdds],
+                             textposition="top center", line=dict(color="#ff6e6e", dash="dot")))
+    fig.update_layout(title="배수가 오를수록: 수익(막대)도 커지지만 낙폭(빨간선)은 -80~90%대로 수렴",
+                      template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
+                      plot_bgcolor="rgba(20,24,35,1)", height=400,
+                      font=dict(family="Malgun Gothic, sans-serif", size=12),
+                      margin=dict(l=40, r=20, t=60, b=40))
+    return fig
+
+
 @st.dialog("📊 미국 지수 & 레버리지 상품 총정리", width="large")
 def _dlg_indices():
+    st.plotly_chart(_fig_perf_risk(), use_container_width=True)
+    st.caption("👆 핵심 한 장: 3배 상품(TQQQ·SOXL)은 CAGR 40%대지만 **역대 낙폭 -82~-90%** — "
+               "수익은 배수를 따라가고, 위험은 그보다 먼저 한계치에 도달합니다.")
     st.html(EXPLAIN)
     st.html(PRODUCTS_HTML)
     st.markdown("### 📈 누적 수익률 차트 (상장 시점부터)")
@@ -149,6 +173,10 @@ def _dlg_indices():
                "회색 점선=원지수, 파랑=1배, 주황=2배, 빨강=3배.")
     st.plotly_chart(_fig(), use_container_width=True)
     st.html(SUMMARY_HTML)
+    st.success("✅ **최종 결론** — ① 1배 수익 서열: 반도체 > 나스닥100 > S&P500·나스닥종합 > 다우·러셀 (장기 일관). "
+               "② 3배는 '상승장 전용 부스터'일 뿐 — TQQQ 371배의 이면은 -82%, SOXL 320배의 이면은 **-90.5%**. "
+               "③ 추천 사고방식: **몇 배짜리를 살까**가 아니라 **-80%를 감당할 금액이 얼마인가**부터 정하고, "
+               "그 금액만 2~3배에, 나머지는 1배(QQQ·SPY)에. ④ 모든 배수 상품은 감쇠 때문에 '지수 회복=내 회복'이 아님을 기억하세요.")
     st.download_button("📥 이 문서를 HTML로 저장 (새 탭에서 열기·공유·인쇄)", _full_doc(),
                        "us_indices_leverage.html", "text/html", use_container_width=True)
 

@@ -35,16 +35,15 @@ def mdd(equity: pd.Series) -> float:
 
 
 def longest_underwater_days(equity: pd.Series) -> int:
-    """최장 무회복 기간(일수, 달력일 기준)."""
-    dd = drawdown_series(equity)
-    longest, start = 0, None
-    for dt, v in dd.items():
-        if v < 0:
-            if start is None:
-                start = dt
-            longest = max(longest, (dt - start).days)
+    """최장 무회복 기간(일수, 달력일). 전고점 '달성일'부터 회복 직전까지 측정."""
+    longest = 0
+    peak_val = float("-inf")
+    peak_dt = None
+    for dt, v in equity.items():
+        if peak_dt is None or v >= peak_val:
+            peak_val, peak_dt = v, dt
         else:
-            start = None
+            longest = max(longest, (dt - peak_dt).days)
     return longest
 
 

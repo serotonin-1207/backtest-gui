@@ -28,30 +28,56 @@ from .validation import validate_synthetic
 OUT_DIR = Path(__file__).resolve().parent.parent / "output" / "reports"
 
 # 배포 버전 — 변경 사항을 올릴 때마다 갱신. 화면에 표시되어 "최신 반영 여부"를 눈으로 확인할 수 있음.
-APP_VERSION = "1.4.4 (2026-07-11) — 참고 자료(폭락구간·지수총정리·도움말·용어사전)를 메인 화면 상단으로 이동"
+APP_VERSION = "1.5.0 (2026-07-11) — 전 팝업 차트·최종결론 보강, 폭락표 연도 추가, 검색 기능, 무회복일 정밀화"
 
 MONEY_COLS = ["총투입금", "추가불입", "중도인출", "순투입금", "최종순자산", "총이자",
               "세금", "세후최종순자산", "매매비용"]
 
 # 주요 지수 실측 폭락 낙폭 비교 — 시작/종료일 선택 참고용 (고점→저점 낙폭 %)
+_CRASH_EVENTS = ["닷컴버블\n2000-03~2002-10", "금융위기\n2007-10~2009-03",
+                 "코로나\n2020-02~2020-03", "2022 긴축\n2021-11~2022-12"]
+_CRASH_DATA = {   # 지수: [닷컴, 금융위기, 코로나, 긴축] 낙폭 %
+    "S&P500": [-49, -57, -34, -25], "나스닥100(QQQ)": [-83, -54, -28, -36],
+    "나스닥종합": [-78, -56, -30, -36], "다우존스": [-38, -54, -37, -22],
+    "반도체(SOX)": [-84, -69, -35, -46], "코스피": [-56, -55, -36, -34],
+}
 _CRASH_REF_MD = """
-**지수별 최대 낙폭 (고점→저점)**
+**지수별 최대 낙폭 — 사건 · 기간(연도) 기준**
 
-| 지수 | 닷컴('00) | 금융위기('08) | 코로나('20) | 긴축('22) |
-|---|---|---|---|---|
-| S&P500 | -49% | -57% | -34% | -25% |
-| 나스닥100(QQQ) | **-83%** | -54% | -28% | -36% |
-| 나스닥종합 | -78% | -56% | -30% | -36% |
-| 다우존스 | -38% | -54% | -37% | -22% |
-| 반도체(SOX) | -84% | -69% | -35% | -46% |
-| 코스피 | -56% | -55% | -36% | -34% |
+| 사건 (고점 → 저점 기간) | S&P500 | 나스닥100 | 나스닥종합 | 다우 | 반도체 | 코스피 |
+|---|---|---|---|---|---|---|
+| 닷컴버블 **2000-03 → 2002-10** | -49% | **-83%** | -78% | -38% | **-84%** | -56% |
+| 금융위기 **2007-10 → 2009-03** | -57% | -54% | -56% | -54% | -69% | -55% |
+| 코로나 **2020-02 → 2020-03** | -34% | -28% | -30% | -37% | -35% | -36% |
+| 2022 긴축 **2021-11 → 2022-12** | -25% | -36% | -36% | -22% | -46% | -34% |
 
-**고점→저점→전고점 회복 시점 (대략)**
-- 닷컴: 2000-03 → 2002-10 → 회복 2007~2015 (나스닥100은 **약 13년**)
-- 금융위기: 2007-10 → 2009-03 → 회복 2011~2013
-- 코로나: 2020-02 → 2020-03 → 회복 2020-06~11 (빠름)
-- 2022 긴축: 2021-11 → 2022-10 → 회복 2023-12~2024
+**전고점 회복까지 걸린 시간 (연도)**
+
+| 사건 | 저점 연도 | 회복 연도 | 소요 |
+|---|---|---|---|
+| 닷컴버블 | 2002 | S&P 2007 · 나스닥100 **2015** | 5~**13년** |
+| 금융위기 | 2009 | 2011~2013 | 2~4년 |
+| 코로나 | 2020-03 | 2020-06~11 | **3~9개월** (가장 빠름) |
+| 2022 긴축 | 2022-10/12 | 2023-12~2024 (코스피 2025) | 1~3년 |
 """
+
+
+def _fig_crash_bars():
+    """사건별 지수 낙폭 그룹 막대 차트."""
+    import plotly.graph_objects as go
+    from .charts import PALETTE
+    fig = go.Figure()
+    for i, (idx_name, drops) in enumerate(_CRASH_DATA.items()):
+        fig.add_trace(go.Bar(x=_CRASH_EVENTS, y=drops, name=idx_name,
+                             marker_color=PALETTE[i % len(PALETTE)],
+                             text=[f"{d}%" for d in drops], textposition="outside"))
+    fig.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
+                      plot_bgcolor="rgba(20,24,35,1)", barmode="group", height=430,
+                      font=dict(family="Malgun Gothic, sans-serif", size=12),
+                      title="폭락 사건별 지수 낙폭 비교 (아래로 깊을수록 심한 하락)",
+                      legend=dict(orientation="h", y=1.08), margin=dict(l=40, r=20, t=80, b=60))
+    fig.update_yaxes(title="고점 대비 낙폭 (%)")
+    return fig
 
 
 def _fmt_rate(x: float) -> str:
@@ -62,18 +88,29 @@ def _fmt_rate(x: float) -> str:
 @st.dialog("📉 주요 지수 폭락 구간 (참고)", width="large")
 def _dlg_crash():
     st.caption("백테스트 시작/종료일 잡을 때 참고하세요. 실측 기준이며 지수마다 고점·저점 날짜는 조금씩 다릅니다.")
+    st.plotly_chart(_fig_crash_bars(), use_container_width=True)
     st.markdown(_CRASH_REF_MD)
+    st.success("✅ **최종 결론** — ① 폭락은 10년에 2~4번 반드시 옵니다(회피 불가). "
+               "② 같은 사건이라도 지수별 낙폭이 크게 다릅니다(닷컴: 다우 -38% vs 나스닥100 -83%). "
+               "③ 회복은 3개월(코로나)~13년(닷컴)까지 제각각 — **'몇 년 물릴 수 있는가'를 기준으로 투자 규모를 정하세요.** "
+               "④ 백테스트할 땐 시작일을 고점 직전(예: 2021-11)으로 놓고 최악을 확인해 보는 것이 정직한 검증입니다.")
 
 
 @st.dialog("❓ 도움말 · 옵션 설명", width="large")
 def _dlg_help():
+    q = st.text_input("🔍 검색 (예: 라오어, 세금)", "", key="help_search")
     for k, v in HELP.items():
+        if q.strip() and (q not in k and q not in v):
+            continue
         st.markdown(f"**{k}** — {v}")
 
 
 @st.dialog("📚 용어 사전", width="large")
 def _dlg_glossary():
+    q = st.text_input("🔍 검색 (예: MDD, 칼마)", "", key="glossary_search")
     for k, v in GLOSSARY.items():
+        if q.strip() and (q.upper() not in k.upper() and q not in v):
+            continue
         st.markdown(f"**{k}**  \n{v}")
 
 

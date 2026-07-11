@@ -226,6 +226,61 @@ QQQ·QLD·TQQQ는 모두 나스닥100을 추종합니다. 여기서는 <b>레버
 """
 
 
+# ============================================================ 보조 차트 (실측값)
+_GL = dict(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(20,24,35,1)",
+           font=dict(family="Malgun Gothic, sans-serif", size=12), height=380,
+           margin=dict(l=40, r=20, t=60, b=40))
+
+
+def _fig_recovery_need():
+    """낙폭 → 본전까지 필요한 상승률 (복리의 비대칭)."""
+    import plotly.graph_objects as go
+    drops = ["-20%", "-30%", "-50%", "-70%", "-82%\n(TQQQ '22)", "-90%\n(SOXL급)"]
+    needs = [25, 43, 100, 233, 445, 900]
+    fig = go.Figure(go.Bar(x=drops, y=needs, marker_color=["#4fc3f7","#4fc3f7","#ffb74d","#ff8a65","#ff6e6e","#d32f2f"],
+                           text=[f"+{n}%" for n in needs], textposition="outside"))
+    fig.update_layout(title="낙폭별 '본전 회복'에 필요한 상승률 — 떨어질수록 기하급수로 커짐", **_GL)
+    fig.update_yaxes(title="필요 상승률 (%)")
+    return fig
+
+
+def _fig_timing_compare(bull: bool):
+    """QQQ/QLD/TQQQ 거치식 vs 적립식2년 최종배수 (실측)."""
+    import plotly.graph_objects as go
+    names = ["QQQ (1배)", "QLD (2배)", "TQQQ (3배)"]
+    if bull:
+        lump, dca, title = [7.65, 22.26, 39.81], [7.14, 20.28, 36.21], \
+            "① 상승장 진입 (2015~현재): 거치식이 근소 우위"
+    else:
+        lump, dca, title = [1.92, 2.21, 2.04], [2.26, 3.52, 4.88], \
+            "② 최악 타이밍 진입 (2021-11 고점~현재): 적립식 압승"
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=names, y=lump, name="거치식(일시)", marker_color="#ff8a65",
+                         text=[f"{v}배" for v in lump], textposition="outside"))
+    fig.add_trace(go.Bar(x=names, y=dca, name="적립식 2년", marker_color="#66bb6a",
+                         text=[f"{v}배" for v in dca], textposition="outside"))
+    fig.update_layout(title=title, barmode="group", **_GL)
+    fig.update_yaxes(title="최종 배수 (원금 대비)")
+    return fig
+
+
+def _fig_why_qqq():
+    """1배 지수 CAGR vs MDD (2010~, 실측)."""
+    import plotly.graph_objects as go
+    names = ["다우", "코스피", "S&P500", "나스닥종합", "나스닥100\n(QQQ)", "반도체\n(SOX)"]
+    cagrs = [10.2, 9.4, 12.2, 15.8, 18.2, 24.1]
+    mdds = [-37, -44, -34, -36, -36, -47]
+    colors = ["#9aa4bb","#9aa4bb","#9aa4bb","#4fc3f7","#66bb6a","#ff8a65"]
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=names, y=cagrs, name="연수익률 CAGR(%)", marker_color=colors,
+                         text=[f"{c}%" for c in cagrs], textposition="outside"))
+    fig.add_trace(go.Scatter(x=names, y=[-m for m in mdds], name="최대낙폭 |MDD|(%)",
+                             mode="lines+markers+text", text=[f"{m}%" for m in mdds],
+                             textposition="top center", line=dict(color="#ff6e6e", dash="dot")))
+    fig.update_layout(title="1배 지수 비교 (2010~현재): 수익률(막대) vs 낙폭(빨간선)", **_GL)
+    return fig
+
+
 def _full_doc(title: str, body: str) -> bytes:
     html = (f"<!DOCTYPE html><html lang='ko'><head><meta charset='UTF-8'>"
             f"<meta name='viewport' content='width=device-width, initial-scale=1'>"
@@ -236,7 +291,13 @@ def _full_doc(title: str, body: str) -> bytes:
 
 @st.dialog("⚠️ 레버리지 ETF 생존 경고", width="large")
 def _dlg_warning():
+    st.plotly_chart(_fig_recovery_need(), use_container_width=True)
+    st.caption("👆 이 차트가 이 문서의 전부입니다: **-82%가 되면 +445%를 벌어야 본전**. 떨어지는 건 순간, 회복은 기하급수.")
     st.html(GUIDE1)
+    st.error("🚨 **최종 결론** — ① 레버리지 ETF에 강제청산은 없지만, 연속 폭락+감쇠로 '사실상 회복 불능'이 진짜 위험. "
+             "② 자문: **-80%(1억→2천만)를 견딜 수 있는가?** 못 견딜 규모면 이미 과투자. "
+             "③ 대응책: 잃어도 되는 규모 + 적립식 분산 + 1배(QQQ)와 혼합. "
+             "④ SNS의 '몇백% 수익'은 생존자의 이야기일 뿐 — 같은 전략으로 사라진 계좌는 말이 없습니다.")
     st.download_button("📥 이 경고문을 HTML로 저장 (새 탭에서 열기·공유·인쇄)",
                        _full_doc("레버리지 ETF 생존 경고", GUIDE1),
                        "leverage_warning.html", "text/html", use_container_width=True)
@@ -244,7 +305,17 @@ def _dlg_warning():
 
 @st.dialog("📊 적립식 전략 시뮬레이션 리포트", width="large")
 def _dlg_report():
+    st.markdown("##### 👀 결과 미리보기 — 차트 두 장이면 결론이 보입니다")
+    st.plotly_chart(_fig_timing_compare(bull=True), use_container_width=True)
+    st.plotly_chart(_fig_timing_compare(bull=False), use_container_width=True)
+    st.caption("👆 상승장(①)엔 거치식이 근소 우위지만, 최악 타이밍(②)엔 적립식이 2배 이상 우위 + 낙폭 완화. "
+               "자세한 설계·수치·해석은 아래 본문.")
     st.html(REPORT)
+    st.success("✅ **최종 결론(운용 지침)** — ① 타이밍에 자신 없으면 **적립식 1~2년**이 정답 "
+               "(상승장 손해는 몇 % 수준, 최악 타이밍 방어는 2배 이상). "
+               "② 주기는 **매주~매월** 아무거나(차이 오차 수준, RP 이자는 매월이 소폭 유리). "
+               "③ 적립이 끝난 뒤의 폭락은 그대로 맞음 — **적립 완료 후에도 -80%를 견딜 규모인지** 재점검. "
+               "④ 레버리지(TQQQ)일수록 적립식 효과가 큼 — 몰빵과 궁합 최악.")
     st.download_button("📥 이 리포트를 HTML로 저장 (새 탭에서 열기·공유·인쇄)",
                        _full_doc("적립식 전략 시뮬레이션 리포트", REPORT),
                        "dca_strategy_report.html", "text/html", use_container_width=True)
@@ -252,7 +323,15 @@ def _dlg_report():
 
 @st.dialog("📈 왜 나스닥100(QQQ)인가?", width="large")
 def _dlg_why():
+    st.plotly_chart(_fig_why_qqq(), use_container_width=True)
+    st.caption("👆 막대(수익률)는 오른쪽으로 갈수록 높아지는데, 빨간선(낙폭)은 나스닥100까지 비슷하다가 반도체에서 튐 — "
+               "**나스닥100 = '낙폭 안 키우고 수익만 올린 마지막 지점'**.")
     st.html(WHY_QQQ)
+    st.success("✅ **최종 결론** — ① 1배 지수 중 **위험 대비 수익 최강은 나스닥100(QQQ)**: "
+               "S&P500과 비슷한 낙폭(-36% vs -34%)으로 수익은 1.5배(18.2% vs 12.2%). "
+               "② 순수 수익 1위는 반도체(24.1%)지만 낙폭 -47%(닷컴 -84%)의 단일섹터 도박. "
+               "③ 실전 조합 예: **핵심 QQQ(또는 S&P500) + 위성 소액 반도체/레버리지** — 핵심은 버티기, 위성은 잃어도 되는 만큼. "
+               "④ 단, 나스닥100도 닷컴 때 -83%·회복 13년 — 어떤 지수든 몰빵·거치식보다 적립식 분산이 안전합니다.")
     st.download_button("📥 이 문서를 HTML로 저장 (새 탭에서 열기·공유·인쇄)",
                        _full_doc("왜 나스닥100(QQQ)인가 — 1배 지수 비교", WHY_QQQ),
                        "why_qqq.html", "text/html", use_container_width=True)
