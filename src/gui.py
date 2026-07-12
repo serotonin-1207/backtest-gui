@@ -30,7 +30,7 @@ from .validation import validate_intraday_ohlc, validate_synthetic
 OUT_DIR = Path(__file__).resolve().parent.parent / "output" / "reports"
 
 # 배포 버전 — 변경 사항을 올릴 때마다 갱신. 화면에 표시되어 "최신 반영 여부"를 눈으로 확인할 수 있음.
-APP_VERSION = "1.10.1 (2026-07-12) — 의견 게시판: 운영자 답변(시트 '답변' 열) 표시 기능 추가"
+APP_VERSION = "1.10.2 (2026-07-12) — 사이드바에 텔레그램 채널 링크 추가"
 
 MONEY_COLS = ["총투입금", "추가불입", "중도인출", "순투입금", "최종순자산", "총이자",
               "세금", "세후최종순자산", "매매비용"]
@@ -379,7 +379,8 @@ def render():
     with st.sidebar:
         st.markdown("### 🧑‍💻 제작 serotonin(이은호)")
         st.markdown("📧 [serotonin.1207@gmail.com](mailto:serotonin.1207@gmail.com)")
-        st.caption("문의 사항이나 수정 요청은 위 이메일로 보내주세요.")
+        st.markdown("✈️ [세로토닌 | 편안한 적립식 투자](https://t.me/+NXtqnYZek3I1OTZl)")
+        st.caption("문의 사항이나 수정 요청은 위 이메일·텔레그램으로 보내주세요.")
         st.caption(f"🔖 버전 {APP_VERSION}")
         st.divider()
         app_mode = st.radio(
