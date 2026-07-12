@@ -30,7 +30,7 @@ from .validation import validate_intraday_ohlc, validate_synthetic
 OUT_DIR = Path(__file__).resolve().parent.parent / "output" / "reports"
 
 # 배포 버전 — 변경 사항을 올릴 때마다 갱신. 화면에 표시되어 "최신 반영 여부"를 눈으로 확인할 수 있음.
-APP_VERSION = "1.10.2 (2026-07-12) — 사이드바에 텔레그램 채널 링크 추가"
+APP_VERSION = "1.11.0 (2026-07-12) — 중국·홍콩 지수/ETF/종목 추가(비교 가능) + '중국·홍콩 지수 총정리' 참고 페이지"
 
 MONEY_COLS = ["총투입금", "추가불입", "중도인출", "순투입금", "최종순자산", "총이자",
               "세금", "세후최종순자산", "매매비용"]
@@ -128,6 +128,7 @@ def _dlg_glossary():
 def _render_reference_bar():
     """메인 화면 상단(투자 전 필독 아래) 참고 자료 버튼 모음 — 누르면 팝업."""
     from .indices_ref import render_indices_button
+    from .china_ref import render_china_button
     with st.container(border=True):
         st.markdown("#### 📖 참고 자료")
         c1, c2 = st.columns(2)
@@ -135,9 +136,11 @@ def _render_reference_bar():
             _dlg_crash()
         render_indices_button(c2)
         c3, c4 = st.columns(2)
-        if c3.button("❓ 도움말 · 옵션 설명", width="stretch", key="btn_ref_help"):
+        render_china_button(c3)
+        if c4.button("❓ 도움말 · 옵션 설명", width="stretch", key="btn_ref_help"):
             _dlg_help()
-        if c4.button("📚 용어 사전", width="stretch", key="btn_ref_glossary"):
+        c5, _c6 = st.columns(2)
+        if c5.button("📚 용어 사전", width="stretch", key="btn_ref_glossary"):
             _dlg_glossary()
 
 

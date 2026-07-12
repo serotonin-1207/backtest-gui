@@ -49,6 +49,7 @@ backtest_gui/
    ├─ cash_plan_page.py     # 현금관리 계산기 화면
    ├─ guide.py              # 투자 가이드 팝업 3종 (경고/리포트/왜QQQ) + 차트
    ├─ indices_ref.py        # 미국 지수·레버리지 총정리 팝업 + index_ref_data.csv 차트
+   ├─ china_ref.py          # 중국·홍콩 지수/ETF/종목 총정리 팝업 + 대표 지수 실측 차트(get_price)
    └─ index_ref_data.csv    # 18개 지수/상품 월별 정규화 데이터 (precomputed)
 ```
 
@@ -115,6 +116,9 @@ backtest_gui/
 | 1.8.0 | 최적의 투자 루틴 추천: QQQ·QLD·TQQQ, 5개 적립주기, 1~15년, 4개 투자방식 롤링 검증·위험한도·균형/수익/방어 점수, 경량 라오어·빠른 XIRR |
 | 1.9.0 | 사이드바 빠른 기간 버튼(1/5/10/15/20/25/30년, 현재 기준), 주요 폭락 시작일 버튼(닷컴/금융위기/코로나/2022긴축/**트럼프관세** → 최고점~오늘), 폭락 참고표·막대차트에 트럼프 관세(2025-02→04) 추가. 날짜는 session_state(bt_start_date/bt_end_date) + on_click 콜백 제어 |
 | 1.9.1 | 루틴 추천 버그 수정 3건(§8 ⑨~⑪): 경량 라오어 소진 대기 미유지·매수 예산 현금 상한 누락(변동장 최대 ±3%p → 전체 엔진과 1e-9 일치), 음수 점수 신뢰도 계수 역전, 위험한도 필터로 적립식 전멸 시 dimension_winners 크래시. 변동 경로 회귀 테스트 3개 추가(총 27개) |
+| 1.11.0 | 🇨🇳🇭🇰 중국·홍콩 자산 추가: 프리셋에 지수(항셍 ^HSI·항셍중국기업 ^HSCE·상하이종합 000001.SS·선전성분 399001.SZ)·ETF(ASHR·3033.HK·FXI·MCHI·KWEB·CQQQ·YINN·CWEB)·홍콩주(텐센트·알리바바·메이투안·BYD·샤오미)·ADR(BABA·PDD·NIO·BIDU) 21종 추가(전부 yfinance 실측 검증). tax_category에 HKD/CNY 해외주식 22% 규칙·CN/HK 지수 none 추가, route_ticker에 .HK→HKD·.SS/.SZ→CNY, _download에 period=max 거부 시 start 폴백. 참고자료에 china_ref.py 소개 팝업(지수/ETF/종목 설명+실측 차트+규제·세금 주의). CSI300·창업판·STAR·항셍테크 원지수는 야후 미제공→ETF 대체. 회귀테스트 28개 |
+| 1.10.2 | 사이드바에 텔레그램 채널 링크 추가 |
+| 1.10.1 | 의견 게시판: 운영자 답변(시트 '답변' 열) 표시 |
 | 1.10.0 | 💬 의견 게시판 모드 추가(§12). **구글 폼(입력 임베드) + 공개 시트 CSV(목록)** 방식 — 서비스 계정·JSON키·구글클라우드 불필요(조직 정책 iam.disableServiceAccountKeyCreation 우회). 닉네임 필수·이메일 선택이되 이메일은 '공개' 탭에서 제외해 목록/CSV 미노출(운영자 원본시트만). 스팸방어는 구글 폼이 처리, 목록 60초 캐시. secrets 미설정 시 설정안내 표시(앱 안 죽음). board.py/board_page.py. ⚠️초기엔 gspread 방식으로 만들었다가 조직 정책 벽에 막혀 폼 방식으로 전환함 |
 
 ## 5. 실측 데이터 (문서·팝업에 사용, 하드코딩된 참조값)

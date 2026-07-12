@@ -10,7 +10,7 @@ from src.cash_plan import run_scenario
 from src.cashflow_engine import dca_schedule
 from src.charts import fig_equity
 from src.currency import convert
-from src.data_loader import tax_category
+from src.data_loader import ASSET_PRESETS, route_ticker, tax_category
 from src.gui import _at
 from src.indices_ref import _chart_data, _fig, _fig_since_1990s
 from src.laoer_strategy import run_laoer
@@ -240,6 +240,23 @@ class CoreRegressionTests(unittest.TestCase):
         for ticker in ("^GSPC", "^NDX", "^IXIC", "^DJI", "^SOX"):
             self.assertEqual(tax_category(ticker, "USD"), "none")
         self.assertEqual(tax_category("QQQ", "USD"), "us_overseas")
+
+    def test_china_hk_tax_and_routing(self):
+        # 홍콩·중국 지수는 직접 매매 상품이 아니므로 비과세 표시
+        for ticker, cur in (("^HSI", "HKD"), ("^HSCE", "HKD"),
+                            ("000001.SS", "CNY"), ("399001.SZ", "CNY")):
+            self.assertEqual(tax_category(ticker, cur), "none")
+        # 홍콩·중국 주식/ETF는 미국과 동일한 해외주식 양도세(us_overseas)
+        for ticker, cur in (("0700.HK", "HKD"), ("3033.HK", "HKD"),
+                            ("FXI", "USD"), ("BABA", "USD")):
+            self.assertEqual(tax_category(ticker, cur), "us_overseas")
+        # 커스텀 티커 라우팅: 접미사로 통화 판별
+        self.assertEqual(route_ticker("0700.HK"), ("yahoo", "HKD"))
+        self.assertEqual(route_ticker("000001.SS"), ("yahoo", "CNY"))
+        self.assertEqual(route_ticker("399001.SZ"), ("yahoo", "CNY"))
+        # 프리셋에 홍콩·중국 대표 자산이 실제로 담겨 있는지
+        for name in ("항셍지수(HK)", "상하이종합", "텐센트(HK)", "중국인터넷(KWEB)"):
+            self.assertIn(name, ASSET_PRESETS)
 
     def test_fx_lookup_uses_previous_observation(self):
         s = pd.Series(

@@ -57,6 +57,31 @@ ASSET_PRESETS: dict[str, dict] = {
     "KODEX 코스닥150레버리지": {"ticker": "233740", "source": "fdr", "currency": "KRW"},
     "KODEX 200":         {"ticker": "069500", "source": "fdr",   "currency": "KRW"},
     "TIGER 미국나스닥100": {"ticker": "133690", "source": "fdr",   "currency": "KRW"},
+    # ---------- 홍콩·중국 지수 (야후 전체 히스토리 검증 완료)
+    "항셍지수(HK)":        {"ticker": "^HSI",    "source": "yahoo", "currency": "HKD"},
+    "항셍 중국기업(H주)":   {"ticker": "^HSCE",   "source": "yahoo", "currency": "HKD"},
+    "상하이종합":          {"ticker": "000001.SS", "source": "yahoo", "currency": "CNY"},
+    "선전성분":            {"ticker": "399001.SZ", "source": "yahoo", "currency": "CNY"},
+    # ---------- 홍콩·중국 대표 ETF (원지수 미제공분은 ETF로 대체)
+    "CSI300 ETF(ASHR)":   {"ticker": "ASHR",    "source": "yahoo", "currency": "USD"},
+    "항셍테크 ETF(3033)":  {"ticker": "3033.HK", "source": "yahoo", "currency": "HKD"},
+    "중국대형주(FXI)":     {"ticker": "FXI",     "source": "yahoo", "currency": "USD"},
+    "MSCI중국(MCHI)":     {"ticker": "MCHI",    "source": "yahoo", "currency": "USD"},
+    "중국인터넷(KWEB)":    {"ticker": "KWEB",    "source": "yahoo", "currency": "USD"},
+    "중국기술(CQQQ)":      {"ticker": "CQQQ",    "source": "yahoo", "currency": "USD"},
+    "중국 3배(YINN)":      {"ticker": "YINN",    "source": "yahoo", "currency": "USD"},
+    "중국인터넷 2배(CWEB)": {"ticker": "CWEB",    "source": "yahoo", "currency": "USD"},
+    # ---------- 홍콩 상장 대표주
+    "텐센트(HK)":          {"ticker": "0700.HK", "source": "yahoo", "currency": "HKD"},
+    "알리바바(HK)":        {"ticker": "9988.HK", "source": "yahoo", "currency": "HKD"},
+    "메이투안(HK)":        {"ticker": "3690.HK", "source": "yahoo", "currency": "HKD"},
+    "BYD(HK)":            {"ticker": "1211.HK", "source": "yahoo", "currency": "HKD"},
+    "샤오미(HK)":          {"ticker": "1810.HK", "source": "yahoo", "currency": "HKD"},
+    # ---------- 미국 상장 중국 ADR
+    "알리바바 ADR":        {"ticker": "BABA",    "source": "yahoo", "currency": "USD"},
+    "핀둬둬(PDD)":         {"ticker": "PDD",     "source": "yahoo", "currency": "USD"},
+    "니오(NIO)":           {"ticker": "NIO",     "source": "yahoo", "currency": "USD"},
+    "바이두(BIDU)":        {"ticker": "BIDU",    "source": "yahoo", "currency": "USD"},
 }
 
 # 합성 가능한 레버리지 ETF: ticker -> (기초지수 티커, 배수, 현재 공시 순보수)
@@ -70,9 +95,13 @@ SYNTH_BASE: dict[str, tuple[str, float, float]] = {
 }
 
 _KR_INDEX = {"KS11", "KQ11", "KS200"}
+# 홍콩·중국 '지수'(직접 매매 상품 아님 → 과세 none). 종목/ETF와 구분하기 위한 집합.
+_CN_HK_INDEX = {"000001.SS", "399001.SZ", "000300.SS", "399006.SZ", "000016.SS",
+                "000688.SS", "399905.SZ"}
 
 # 배당 제외 '가격지수' — ETF(배당 반영)와 섞어 비교하면 불리하게 보임
-PRICE_INDEX_TICKERS = {"^GSPC", "^IXIC", "^NDX", "^DJI", "^SOX", "KS11", "KQ11", "KS200"}
+PRICE_INDEX_TICKERS = {"^GSPC", "^IXIC", "^NDX", "^DJI", "^SOX", "KS11", "KQ11", "KS200",
+                       "^HSI", "^HSCE", "000001.SS", "399001.SZ"}
 
 # 공식적으로 배당 재투자를 포함해 산출되는 총수익 지수의 Yahoo 심볼.
 # 제공 실패 시에만 INDEX_DIV_YIELD 고정 연율 근사로 폴백한다.
@@ -84,6 +113,7 @@ TOTAL_RETURN_TICKERS = {
 INDEX_DIV_YIELD = {
     "^GSPC": 0.018, "^IXIC": 0.009, "^NDX": 0.008, "^DJI": 0.020, "^SOX": 0.010,
     "KS11": 0.018, "KQ11": 0.010, "KS200": 0.018,
+    "^HSI": 0.035, "^HSCE": 0.030, "000001.SS": 0.020, "399001.SZ": 0.012,
 }
 
 # 국내 상장 ETF 티커 (매매차익 배당소득 15.4%)
@@ -95,9 +125,10 @@ def tax_category(ticker: str, currency: str) -> str:
     us_overseas(미국 22%) / kr_etf(15.4%) / kr_stock(비과세) / none(지수)."""
     t = ticker.strip().upper()
     # 지수는 직접 매매 상품이 아니므로 통화와 관계없이 과세 대상에서 제외한다.
-    if t.startswith("^") or t in _KR_INDEX:
+    if t.startswith("^") or t in _KR_INDEX or t in _CN_HK_INDEX:
         return "none"
-    if currency == "USD":
+    # 해외주식 양도소득세(연 250만원 공제 후 22%)는 미국·홍콩·중국·일본 등 국가 무관 동일 규칙.
+    if currency in ("USD", "HKD", "CNY", "JPY", "EUR"):
         return "us_overseas"
     if t in KR_ETF_TICKERS:
         return "kr_etf"
@@ -114,6 +145,10 @@ def route_ticker(ticker: str, override: str | None = None) -> tuple[str, str]:
         return "fdr", "KRW"
     if override == "us":
         return "yahoo", "USD"
+    if t.endswith(".HK"):
+        return "yahoo", "HKD"
+    if t.endswith(".SS") or t.endswith(".SZ"):
+        return "yahoo", "CNY"
     if re.fullmatch(r"\d{6}", t) or t in _KR_INDEX:
         return "fdr", "KRW"
     return "yahoo", "USD"
@@ -176,7 +211,13 @@ def _download(ticker: str, source: str, start: str | None = None) -> pd.DataFram
         if start:
             df = yf.download(ticker, start=start, auto_adjust=True, progress=False)
         else:
-            df = yf.download(ticker, period="max", auto_adjust=True, progress=False)
+            try:
+                df = yf.download(ticker, period="max", auto_adjust=True, progress=False)
+            except Exception:
+                df = pd.DataFrame()
+            # 일부 상하이/선전 심볼은 period="max"를 거부 → 명시적 시작일로 폴백
+            if df is None or df.empty:
+                df = yf.download(ticker, start="1970-01-01", auto_adjust=True, progress=False)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
     if df is None or df.empty:
