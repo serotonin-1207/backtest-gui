@@ -30,7 +30,7 @@ from .validation import validate_intraday_ohlc, validate_synthetic
 OUT_DIR = Path(__file__).resolve().parent.parent / "output" / "reports"
 
 # 배포 버전 — 변경 사항을 올릴 때마다 갱신. 화면에 표시되어 "최신 반영 여부"를 눈으로 확인할 수 있음.
-APP_VERSION = "1.11.0 (2026-07-12) — 중국·홍콩 지수/ETF/종목 추가(비교 가능) + '중국·홍콩 지수 총정리' 참고 페이지"
+APP_VERSION = "1.11.1 (2026-07-12) — 항셍테크 2배(7226) 추가, 사용자 티커 국가칸 숨김(자동판별 안내), 중국·홍콩 총정리에 레버리지(중국판 QQQ/QLD/TQQQ·SOXX) 섹션"
 
 MONEY_COLS = ["총투입금", "추가불입", "중도인출", "순투입금", "최종순자산", "총이자",
               "세금", "세후최종순자산", "매매비용"]
@@ -429,11 +429,15 @@ def _render_backtest():
 
         if "custom_tickers" not in st.session_state:
             st.session_state.custom_tickers = []
-        tc1, tc2 = st.columns([2, 1])
-        tc1.text_input("사용자 티커 추가", key="new_ticker_input", placeholder="예: AAPL, 005930",
-                       help="티커를 입력하고 ➕추가. 존재하는 티커면 아래 목록에 담깁니다. "
-                            "6자리 숫자=한국, 알파벳=미국 자동 판별.")
-        tc2.selectbox("국가", ["자동", "한국(kr)", "미국(us)"], index=0, key="new_ticker_ov")
+        st.text_input(
+            "사용자 티커 추가", key="new_ticker_input",
+            placeholder="예: AAPL · 005930 · 0700.HK · 000001.SS",
+            help="티커를 입력하고 ➕추가하면 존재하는 티커는 아래 목록에 담깁니다. 국가는 자동 판별됩니다.",
+        )
+        st.caption(
+            "🌏 자동 판별 — 알파벳=미국, 6자리 숫자=한국, "
+            "**`.HK`**=홍콩(예 `0700.HK`), **`.SS`**=상하이(예 `000001.SS`), **`.SZ`**=선전(예 `399001.SZ`)"
+        )
         st.button("➕ 추가", on_click=_add_custom_ticker, width="stretch")
         msg = st.session_state.pop("ticker_msg", None)
         if msg:

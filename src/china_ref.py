@@ -82,6 +82,49 @@ ETF_HTML = _CSS + """
 </div>
 """
 
+# ---------------- 중국·홍콩판 레버리지 (미국 상품 대응)
+LEVERAGE_HTML = _CSS + """
+<div class="cr">
+<h2>🚀 중국·홍콩판 QQQ·QLD·TQQQ / SOXX (레버리지 대응)</h2>
+<p>미국의 나스닥·반도체 1·2·3배 상품에 대응하는 홍콩·중국 상품을 정리했습니다.
+배수가 클수록 <b>수익도 손실도 배수만큼</b> 커지고, 일간 재설정·변동성 감쇠로 장기 성과는
+지수의 정확한 배수가 아닙니다.</p>
+<h3 style="color:#ff8a80">① 나스닥형(기술주) 사다리</h3>
+<table>
+<tr><th>미국</th><th>배수</th><th>중국·홍콩 대응</th><th>티커</th><th>비고</th></tr>
+<tr><td>QQQ</td><td>1배</td><td><b>항셍테크</b>(중국판 나스닥)·중국 인터넷·기술</td>
+<td><b>3033.HK</b> · KWEB · CQQQ</td><td class="pos">앱에 있음</td></tr>
+<tr><td>QLD</td><td>2배</td><td>항셍테크 2배 / 차이나인터넷 2배</td>
+<td><b>7226.HK</b>(홍콩) · CWEB(미국)</td><td class="pos">앱에 있음</td></tr>
+<tr><td class="neg">TQQQ</td><td>3배</td><td><b>순수 3배 중국 기술주는 없음</b> → 가장 가까운 3배</td>
+<td>YINN(중국 대형주 3배)</td><td class="pos">앱에 있음(대형주 기준)</td></tr>
+</table>
+<h3 style="color:#ffb74d">② 광의 지수 2배</h3>
+<table>
+<tr><th>지수</th><th>1배</th><th>2배</th></tr>
+<tr><td>항셍지수(HSI)</td><td>항셍 ETF / ^HSI</td><td><b>7200.HK</b>(2배 롱)</td></tr>
+<tr><td>CSI300 (본토 A주)</td><td>ASHR</td><td><b>CHAU</b>(A주 2배)</td></tr>
+</table>
+<h3 style="color:#4fc3f7">③ 반도체 사다리 (SOXX·USD·SOXL 대응)</h3>
+<table>
+<tr><th>미국</th><th>배수</th><th>중국 대응</th><th>티커</th></tr>
+<tr><td>SOXX/SMH</td><td>1배</td><td>중국 반도체 ETF</td><td><b>3191.HK</b> · 512760.SS · 159995.SZ(본토)</td></tr>
+<tr><td>USD</td><td>2배</td><td class="neg">중국 반도체 2배 ETF 없음</td><td>—</td></tr>
+<tr><td class="neg">SOXL</td><td>3배</td><td class="neg">중국 반도체 3배 ETF 없음</td><td>—</td></tr>
+<tr><td>(개별 대장주)</td><td>—</td><td>SMIC(‘중국의 TSMC’) · 화훙반도체</td><td>0981.HK·688981.SS · 1347.HK</td></tr>
+</table>
+<div class="warn"><b>⚠️ 꼭 알아두기</b><br>
+· <b>순수 3배 중국 기술주·중국 반도체 레버리지 ETF는 존재하지 않습니다.</b> 3배는 YINN(대형주 전체)뿐입니다.<br>
+· 홍콩 <b>7xxx.HK</b> 상품은 ‘롱/인버스’ 쌍입니다. 실측 확인: <b>7226.HK=항셍테크 2배 롱</b>,
+7552.HK=2배 인버스(숏). <b>7200.HK=항셍 2배 롱</b>. 매매 전 방향을 꼭 확인하세요.<br>
+· 레버리지·인버스는 장기 보유 시 변동성 감쇠로 원지수와 크게 벌어질 수 있습니다.</div>
+<div class="tip"><b>🛠 앱에서 쓰는 법</b> — <b>7226.HK</b>는 사이드바 <b>자산 선택</b>에 이미 있습니다.
+목록에 없는 것(7200.HK·CHAU·YANG·3191.HK·0981.HK·1347.HK 등)은 사이드바
+<b>‘사용자 티커 추가’</b>에 티커를 그대로 입력하면 됩니다(홍콩 <code>.HK</code>, 상하이 <code>.SS</code>,
+선전 <code>.SZ</code> 자동 인식).</div>
+</div>
+"""
+
 # ---------------- 대표 종목
 STOCK_HTML = _CSS + """
 <div class="cr">
@@ -168,7 +211,8 @@ def _core_index_chart():
 
 
 def _full_doc() -> bytes:
-    body = HK_INDEX_HTML + CN_INDEX_HTML + ETF_HTML + STOCK_HTML + CAUTION_HTML
+    body = (HK_INDEX_HTML + CN_INDEX_HTML + LEVERAGE_HTML + ETF_HTML
+            + STOCK_HTML + CAUTION_HTML)
     html = ("<!DOCTYPE html><html lang='ko'><head><meta charset='UTF-8'>"
             "<title>중국·홍콩 지수 총정리</title></head>"
             "<body style='background:#0e1420;margin:0;padding:24px'>"
@@ -190,6 +234,7 @@ def _dlg_china():
                    "누적수익입니다. 배당 미포함 가격지수이며, 범례를 클릭해 켜고 끌 수 있습니다.")
     else:
         st.info("실시간 지수 데이터를 불러오지 못했습니다. 사이드바 **자산 선택**에서 직접 골라 백테스트해 보세요.")
+    st.html(LEVERAGE_HTML)
     st.html(ETF_HTML)
     st.html(STOCK_HTML)
     st.html(CAUTION_HTML)

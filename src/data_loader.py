@@ -65,6 +65,7 @@ ASSET_PRESETS: dict[str, dict] = {
     # ---------- 홍콩·중국 대표 ETF (원지수 미제공분은 ETF로 대체)
     "CSI300 ETF(ASHR)":   {"ticker": "ASHR",    "source": "yahoo", "currency": "USD"},
     "항셍테크 ETF(3033)":  {"ticker": "3033.HK", "source": "yahoo", "currency": "HKD"},
+    "항셍테크 2배(7226)":  {"ticker": "7226.HK", "source": "yahoo", "currency": "HKD"},
     "중국대형주(FXI)":     {"ticker": "FXI",     "source": "yahoo", "currency": "USD"},
     "MSCI중국(MCHI)":     {"ticker": "MCHI",    "source": "yahoo", "currency": "USD"},
     "중국인터넷(KWEB)":    {"ticker": "KWEB",    "source": "yahoo", "currency": "USD"},

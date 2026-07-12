@@ -255,8 +255,10 @@ class CoreRegressionTests(unittest.TestCase):
         self.assertEqual(route_ticker("000001.SS"), ("yahoo", "CNY"))
         self.assertEqual(route_ticker("399001.SZ"), ("yahoo", "CNY"))
         # 프리셋에 홍콩·중국 대표 자산이 실제로 담겨 있는지
-        for name in ("항셍지수(HK)", "상하이종합", "텐센트(HK)", "중국인터넷(KWEB)"):
+        for name in ("항셍지수(HK)", "상하이종합", "텐센트(HK)", "중국인터넷(KWEB)",
+                     "항셍테크 2배(7226)"):
             self.assertIn(name, ASSET_PRESETS)
+        self.assertEqual(ASSET_PRESETS["항셍테크 2배(7226)"]["currency"], "HKD")
 
     def test_fx_lookup_uses_previous_observation(self):
         s = pd.Series(
