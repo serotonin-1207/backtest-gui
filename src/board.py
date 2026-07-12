@@ -43,14 +43,15 @@ def is_configured() -> bool:
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_posts(url: str) -> pd.DataFrame:
-    """공개 CSV를 읽어 작성시각·닉네임·의견을 최신순으로 반환.
+    """공개 CSV를 읽어 작성시각·닉네임·의견(·운영자 답변)을 최신순으로 반환.
 
     열 이름은 폼/시트 설정에 따라 달라질 수 있어 이름을 유연하게 매칭한다.
     이메일 열은 애초에 공개 탭에 없으므로 여기서도 다루지 않는다.
+    '답변'(운영자 답글) 열은 공개 탭에 있을 때만 표시된다(없으면 빈 값).
     """
     df = pd.read_csv(url)
     if df.empty:
-        return pd.DataFrame(columns=["작성시각", "닉네임", "의견"])
+        return pd.DataFrame(columns=["작성시각", "닉네임", "의견", "답변"])
     cols = {str(c).strip(): c for c in df.columns}
 
     def pick(*names):
@@ -59,13 +60,21 @@ def fetch_posts(url: str) -> pd.DataFrame:
                 return cols[n]
         return None
 
+    def col_text(name_or_none, default=""):
+        if name_or_none is None:
+            return default
+        s = df[name_or_none].astype(str).str.strip()
+        return s.where(~s.str.lower().isin(["nan", ""]), default)
+
     tcol = pick("작성시각", "타임스탬프", "Timestamp") or df.columns[0]
     ncol = pick("닉네임", "이름", "Nickname", "name")
     mcol = pick("의견", "내용", "Message", "message")
+    rcol = pick("답변", "운영자답변", "운영자 답변", "Reply", "답글")
     out = pd.DataFrame({
         "작성시각": df[tcol].astype(str) if tcol is not None else "",
-        "닉네임": df[ncol].astype(str) if ncol is not None else "익명",
-        "의견": df[mcol].astype(str) if mcol is not None else "",
+        "닉네임": col_text(ncol, "익명"),
+        "의견": col_text(mcol),
+        "답변": col_text(rcol),
     })
-    out = out[out["의견"].str.strip().ne("") & out["의견"].str.strip().ne("nan")]
+    out = out[out["의견"].str.strip().ne("")]
     return out.iloc[::-1].reset_index(drop=True)

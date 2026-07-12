@@ -92,3 +92,6 @@ def render_board() -> None:
         with st.container(border=True):
             st.markdown(f"**{row['닉네임']}**  ·  {row['작성시각']}")
             st.text(str(row["의견"]))
+            reply = str(row.get("답변", "")).strip()
+            if reply:
+                st.info(f"💬 **운영자 답변**\n\n{reply}")
