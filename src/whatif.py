@@ -76,7 +76,16 @@ def render_whatif_dashboard() -> None:
     end_dt = data.get("_end")
     if end_dt is None:
         return
-    with st.container(border=True):
+    st.markdown(
+        "<style>"
+        ".st-key-whatif_dash [data-testid='stVerticalBlock']{gap:.3rem;}"
+        ".st-key-whatif_dash [data-testid='stMarkdownContainer'] p{margin:0 0 .1rem;line-height:1.34;}"
+        ".st-key-whatif_dash [data-testid='stElementContainer']{margin:0;}"
+        ".st-key-whatif_dash [data-testid='stCaptionContainer'] p{margin:.1rem 0;}"
+        "</style>",
+        unsafe_allow_html=True,
+    )
+    with st.container(border=True, key="whatif_dash"):
         st.markdown("### 💰 1천만원을 투자했다면? — 거치식 vs 적립식 (오늘 기준)")
         st.caption(
             f"각 종목을 그 시점에 **1천만원** 넣어 **최신 종가({end_dt.date()})** 까지 보유한 결과입니다. "
