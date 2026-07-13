@@ -30,7 +30,7 @@ from .validation import validate_intraday_ohlc, validate_synthetic
 OUT_DIR = Path(__file__).resolve().parent.parent / "output" / "reports"
 
 # 배포 버전 — 변경 사항을 올릴 때마다 갱신. 화면에 표시되어 "최신 반영 여부"를 눈으로 확인할 수 있음.
-APP_VERSION = "1.12.0 (2026-07-13) — 참고자료에 'TQQQ·QLD 공격형 전략 정리' 페이지 추가(비중·분산기간·주기·거치/적립 롤링 결론, 공유용 HTML)"
+APP_VERSION = "1.12.1 (2026-07-13) — 공격형 전략 정리에 '레버리지 0 수렴/2배vs3배 최악장(닷컴 -99%·2021 적립 회복)' 위험 섹션 추가"
 
 MONEY_COLS = ["총투입금", "추가불입", "중도인출", "순투입금", "최종순자산", "총이자",
               "세금", "세후최종순자산", "매매비용"]

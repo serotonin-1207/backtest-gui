@@ -80,6 +80,29 @@ SCHEDULE_HTML = _CSS + """
 </div>
 """
 
+ZERO_HTML = _CSS + """
+<div class="sr">
+<h2>③ 레버리지가 0에 수렴하나? — 2배 vs 3배 진짜 최악장</h2>
+<p><b>"정확히 0"은 사실상 불가능</b> — 3배가 하루 만에 0이 되려면 나스닥100이 하루 -33% 빠져야 하는데,
+역대 최악 단일일이 -15%(1987)이고 -20%에서 증시가 강제 정지(서킷브레이커)됩니다.</p>
+<p><b>하지만 긴 하락장의 감쇠로 -99%(실질 전멸)는 가능합니다</b> — 닷컴버블(2000~2002) 합성 시뮬레이션:</p>
+<table>
+<tr><th>레버리지</th><th>최대 낙폭</th><th>본전까지 필요 수익</th></tr>
+<tr><td>나스닥100 (1x)</td><td>-83%</td><td>+485%</td></tr>
+<tr><td>2배 (QLD형)</td><td class="neg">-98.6%</td><td>+7,061%</td></tr>
+<tr><td>3배 (TQQQ형)</td><td class="neg">-99.9%</td><td>+176,628%</td></tr>
+</table>
+<p>1x도 전고점 회복에 <b>약 13년(2015년)</b> 걸렸고, 2·3배는 그 구간에서 <b>사실상 영구 미회복</b>입니다.</p>
+<div class="tip"><b>적립식이면 다른가?</b> 지수가 회복하면 극적으로 다릅니다. 실제 TQQQ를 2021-11 고점(저점 -82%)부터
+투자 시: 거치식 +83% vs <b>적립식 1년 +371%</b> — 바닥에서 싼 주식을 쌓아 회복 때 폭발합니다.
+<b>단, 지수가 회복해야</b> 하고, 운용사가 상품을 청산(상장폐지)하면 손실이 그대로 확정됩니다
+(2020년 3배 원유·변동성 ETF 실제 청산 사례 있음).</div>
+<div class="warn"><b>핵심</b> — 바닥의 고통은 -78%든 -82%든 비슷합니다(맞는 직관). 진짜 차이는 <b>'회복 가능 여부'</b>와
+꼬리 위험이며, 가장 큰 결정은 "2배냐 3배냐"보다 <b>"레버리지를 쓰느냐 마느냐"</b>입니다. 닷컴형 장이 오면
+2·3배 모두 몇 년~영구 미회복이니, 그 구간에도 적립을 이어갈 현금과 심리가 있어야 이 전략이 성립합니다.</div>
+</div>
+"""
+
 FINAL_HTML = _CSS + """
 <div class="sr">
 <h2>✅ 최종 결론 (공격형)</h2>
@@ -102,7 +125,7 @@ FINAL_HTML = _CSS + """
 
 
 def _full_doc() -> bytes:
-    body = CORE_HTML + WEIGHT_HTML + SCHEDULE_HTML + FINAL_HTML
+    body = CORE_HTML + WEIGHT_HTML + SCHEDULE_HTML + ZERO_HTML + FINAL_HTML
     html = ("<!DOCTYPE html><html lang='ko'><head><meta charset='UTF-8'>"
             "<title>TQQQ·QLD 공격형 투자 전략 정리</title></head>"
             "<body style='background:#0e1420;margin:0;padding:24px'>"
@@ -118,6 +141,7 @@ def _dlg_strategy():
     st.html(CORE_HTML)
     st.html(WEIGHT_HTML)
     st.html(SCHEDULE_HTML)
+    st.html(ZERO_HTML)
     st.html(FINAL_HTML)
     st.download_button("📥 이 정리를 HTML로 저장 (새 탭에서 열기·공유·인쇄)", _full_doc(),
                        "tqqq_qld_aggressive_strategy.html", "text/html", width="stretch")
