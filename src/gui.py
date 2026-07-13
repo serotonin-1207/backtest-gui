@@ -30,7 +30,7 @@ from .validation import validate_intraday_ohlc, validate_synthetic
 OUT_DIR = Path(__file__).resolve().parent.parent / "output" / "reports"
 
 # 배포 버전 — 변경 사항을 올릴 때마다 갱신. 화면에 표시되어 "최신 반영 여부"를 눈으로 확인할 수 있음.
-APP_VERSION = "1.13.2 (2026-07-13) — 상단 대시보드에 라오어 V3.0 수익률 추가(거치식·적립식·라오어 3종 비교)"
+APP_VERSION = "1.13.3 (2026-07-13) — 상단 대시보드 종목 순서를 QQQ·QLD·TQQQ(레버리지 오름차순)로 정렬"
 
 MONEY_COLS = ["총투입금", "추가불입", "중도인출", "순투입금", "최종순자산", "총이자",
               "세금", "세후최종순자산", "매매비용"]

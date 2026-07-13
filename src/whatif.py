@@ -16,7 +16,7 @@ import streamlit as st
 from .data_loader import get_price
 from .laoer_strategy import run_laoer
 
-_ASSETS = [("TQQQ", "USD"), ("QQQ", "USD"), ("QLD", "USD")]
+_ASSETS = [("QQQ", "USD"), ("QLD", "USD"), ("TQQQ", "USD")]
 _PERIODS = [(10, "10년 전"), (5, "5년 전"), (1, "1년 전")]
 _INVEST = 10_000_000  # 1천만원
 
