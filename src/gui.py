@@ -30,7 +30,7 @@ from .validation import validate_intraday_ohlc, validate_synthetic
 OUT_DIR = Path(__file__).resolve().parent.parent / "output" / "reports"
 
 # 배포 버전 — 변경 사항을 올릴 때마다 갱신. 화면에 표시되어 "최신 반영 여부"를 눈으로 확인할 수 있음.
-APP_VERSION = "1.13.4 (2026-07-13) — 상단 대시보드 상하 간격 축소(CSS 스코프 조정)"
+APP_VERSION = "1.14.0 (2026-07-13) — 방문자 카운터(오늘/누적) 추가, Google Apps Script 백엔드(서비스 계정 불필요), 미설정 시 숨김"
 
 MONEY_COLS = ["총투입금", "추가불입", "중도인출", "순투입금", "최종순자산", "총이자",
               "세금", "세후최종순자산", "매매비용"]
@@ -397,6 +397,8 @@ def render():
         st.markdown("✈️ [세로토닌 | 편안한 적립식 투자](https://t.me/+NXtqnYZek3I1OTZl)")
         st.caption("문의 사항이나 수정 요청은 위 이메일·텔레그램으로 보내주세요.")
         st.caption(f"🔖 버전 {APP_VERSION}")
+        from .visit_counter import render_visit_counter
+        render_visit_counter()
         st.divider()
         app_mode = st.radio(
             "🧭 모드",
