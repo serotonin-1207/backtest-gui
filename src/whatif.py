@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
-"""상단 대시보드: '오늘 기준 N년 전 1천만원을 샀다면?' — TQQQ·QQQ·QLD 실측 수익률.
+"""최상단 대시보드: '오늘 기준 N년 전 1천만원을 샀다면?' — TQQQ·QQQ·QLD 거치식/적립식 실측.
 
-- 항상 오늘 기준으로 계산(투자 시작일 = 최신 종가일에서 N년 전 첫 거래일).
-- 종료 = 최신 확정 종가(사실상 어제 종가). 배당 재투자(수정종가) 반영, 세금·환율·수수료 미반영.
+- 항상 오늘 기준(시작 = 최신 종가일에서 N년 전 첫 거래일, 종료 = 최신 확정 종가 ≈ 어제 종가).
+- 거치식: 시작일에 1천만원 전액 매수.
+- 적립식: 1천만원을 기간 내 매 거래일 균등 분할 매수(일별 매수액도 표기).
+- 배당 재투자(수정종가) 반영, 세금·환율·수수료 미반영.
 """
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -31,15 +34,19 @@ def _compute(day_key: str) -> dict:
         rows: dict = {}
         for yrs, _ in _PERIODS:
             s = close.loc[close.index >= e_dt - pd.DateOffset(years=yrs)]
-            if len(s) < 2:
+            if len(s) < 2 or float(s.iloc[0]) <= 0:
                 rows[yrs] = None
                 continue
             start_dt, start_px = s.index[0], float(s.iloc[0])
-            mult = e_px / start_px if start_px > 0 else 0.0
-            years = max((e_dt - start_dt).days / 365.25, 1e-9)
+            n = len(s)
+            per_day = _INVEST / n
+            lump_mult = e_px / start_px
+            dca_shares = float((per_day / s.to_numpy()).sum())
+            dca_mult = dca_shares * e_px / _INVEST
             rows[yrs] = {
-                "start": start_dt, "ret": mult - 1.0, "final": _INVEST * mult,
-                "cagr": mult ** (1.0 / years) - 1.0 if mult > 0 else 0.0,
+                "start": start_dt, "n_days": n, "per_day": per_day,
+                "lump_ret": lump_mult - 1.0, "lump_final": _INVEST * lump_mult,
+                "dca_ret": dca_mult - 1.0, "dca_final": _INVEST * dca_mult,
             }
         out[ticker] = rows
     out["_end"] = end_dt
@@ -49,8 +56,8 @@ def _compute(day_key: str) -> dict:
 def _won(v: float) -> str:
     eok = v / 1e8
     if eok >= 1:
-        return f"{eok:.2f}억"
-    return f"{v / 1e4:,.0f}만"
+        return f"{eok:.2f}억원"
+    return f"{v / 1e4:,.0f}만원"
 
 
 def render_whatif_dashboard() -> None:
@@ -59,23 +66,30 @@ def render_whatif_dashboard() -> None:
     if end_dt is None:
         return
     with st.container(border=True):
-        st.markdown("#### 💰 1천만원을 투자했다면? (오늘 기준)")
+        st.markdown("### 💰 1천만원을 투자했다면? — 거치식 vs 적립식 (오늘 기준)")
         st.caption(
-            f"각 종목을 그 시점에 **1천만원** 매수해 **최신 종가({end_dt.date()})** 까지 보유한 결과입니다. "
-            "배당 재투자(수정종가) 반영 · 세금·환율·수수료 미반영 · 매일 자동 갱신."
+            f"각 종목을 그 시점에 **1천만원** 넣어 **최신 종가({end_dt.date()})** 까지 보유한 결과입니다. "
+            "**거치식**=시작일 전액 매수, **적립식**=기간 내 매 거래일 균등 분할. "
+            "배당 재투자 반영 · 세금·환율·수수료 미반영 · 매일 자동 갱신."
         )
         for yrs, label in _PERIODS:
             sample = data.get("QQQ", {}).get(yrs) or data.get("TQQQ", {}).get(yrs)
-            span = f" ({sample['start'].date()} ~ {end_dt.date()})" if sample else ""
-            st.markdown(f"**📅 {label}에 샀다면**{span}")
+            if sample:
+                st.markdown(
+                    f"**📅 {label} ({sample['start'].date()} ~ {end_dt.date()})** "
+                    f"· 적립식 일별 매수액 약 **{sample['per_day']:,.0f}원** ({sample['n_days']:,}거래일)"
+                )
+            else:
+                st.markdown(f"**📅 {label}**")
             cols = st.columns(len(_ASSETS))
             for i, (ticker, _) in enumerate(_ASSETS):
                 r = data.get(ticker, {}).get(yrs)
-                if not r:
-                    cols[i].metric(ticker, "데이터 부족", border=True)
-                    continue
-                cols[i].metric(
-                    ticker, f"{r['ret']:+.0%}",
-                    delta=f"→ {_won(r['final'])}원 · CAGR {r['cagr']:+.0%}",
-                    delta_color="off", border=True,
-                )
+                with cols[i].container(border=True):
+                    if not r:
+                        st.markdown(f"**{ticker}**  \n데이터 부족")
+                        continue
+                    st.markdown(
+                        f"**{ticker}**  \n"
+                        f"거치식 **{r['lump_ret']:+.0%}** → {_won(r['lump_final'])}  \n"
+                        f"적립식 **{r['dca_ret']:+.0%}** → {_won(r['dca_final'])}"
+                    )
