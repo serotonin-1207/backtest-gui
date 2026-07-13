@@ -30,7 +30,7 @@ from .validation import validate_intraday_ohlc, validate_synthetic
 OUT_DIR = Path(__file__).resolve().parent.parent / "output" / "reports"
 
 # 배포 버전 — 변경 사항을 올릴 때마다 갱신. 화면에 표시되어 "최신 반영 여부"를 눈으로 확인할 수 있음.
-APP_VERSION = "1.11.2 (2026-07-12) — 사이드바에 항셍테크 규제 폭락 시작일 버튼(2021-02-17) 추가, 폭락 참고표에 중국 빅테크 규제 폭락 설명"
+APP_VERSION = "1.12.0 (2026-07-13) — 참고자료에 'TQQQ·QLD 공격형 전략 정리' 페이지 추가(비중·분산기간·주기·거치/적립 롤링 결론, 공유용 HTML)"
 
 MONEY_COLS = ["총투입금", "추가불입", "중도인출", "순투입금", "최종순자산", "총이자",
               "세금", "세후최종순자산", "매매비용"]
@@ -139,8 +139,10 @@ def _render_reference_bar():
     """메인 화면 상단(투자 전 필독 아래) 참고 자료 버튼 모음 — 누르면 팝업."""
     from .indices_ref import render_indices_button
     from .china_ref import render_china_button
+    from .strategy_ref import render_strategy_button
     with st.container(border=True):
         st.markdown("#### 📖 참고 자료")
+        render_strategy_button()
         c1, c2 = st.columns(2)
         if c1.button("📉 주요 지수 폭락 구간 (참고)", width="stretch", key="btn_ref_crash"):
             _dlg_crash()
