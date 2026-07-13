@@ -30,7 +30,7 @@ from .validation import validate_intraday_ohlc, validate_synthetic
 OUT_DIR = Path(__file__).resolve().parent.parent / "output" / "reports"
 
 # 배포 버전 — 변경 사항을 올릴 때마다 갱신. 화면에 표시되어 "최신 반영 여부"를 눈으로 확인할 수 있음.
-APP_VERSION = "1.12.1 (2026-07-13) — 공격형 전략 정리에 '레버리지 0 수렴/2배vs3배 최악장(닷컴 -99%·2021 적립 회복)' 위험 섹션 추가"
+APP_VERSION = "1.13.0 (2026-07-13) — 상단 대시보드: '1천만원을 N년 전(10/5/1년) 샀다면?' TQQQ·QQQ·QLD 실측 수익률(오늘 기준 자동 갱신)"
 
 MONEY_COLS = ["총투입금", "추가불입", "중도인출", "순투입금", "최종순자산", "총이자",
               "세금", "세후최종순자산", "매매비용"]
@@ -430,6 +430,9 @@ def _render_backtest():
     st.title("📈 세로토닌 백테스트")
     st.caption("제작 serotonin(이은호) · 미국·한국 지수/ETF/개별종목 · 거치식/적립식/라오어(V2.2·V3.0) · "
                "⚠️ 백테스트 결과는 미래 수익을 보장하지 않습니다. 레버리지 상품은 변동성 감쇠 위험이 있습니다.")
+
+    from .whatif import render_whatif_dashboard
+    render_whatif_dashboard()
 
     # ================================================== 사이드바 (설정 패널)
     with st.sidebar:
