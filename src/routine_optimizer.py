@@ -143,102 +143,20 @@ def _contribution_result(
     }
 
 
-def _laoer_result(
-    ohlc: pd.DataFrame,
-    fee_bp: float,
-    version: str,
-    fill_buffer_bp: float,
-) -> dict:
-    """추천 대량 계산용 경량 라오어 시뮬레이터(외부 이벤트·상세 로그 없음)."""
-    splits = 20 if version == "V3.0" else 40
-    target = 15.0 if version == "V3.0" else 10.0
-    prices = ohlc["Close"].to_numpy(dtype=float)
-    highs = ohlc["High"].to_numpy(dtype=float) if "High" in ohlc else prices
-    cost_rate = max(float(fee_bp), 0.0) / 1e4
-    fill_buffer = max(float(fill_buffer_bp), 0.0) / 1e4
-    set_principal = 1.0
-    one_buy = set_principal / splits
-    cash, shares, avg, cum_buy = 1.0, 0.0, 0.0, 0.0
-    waiting = False
-    equities = []
-    buy_count = 0
+def _laoer_result(ohlc: pd.DataFrame, fee_bp: float, symbol: str) -> dict:
+    """추천 대량 계산용 라오어 V4.0 결과(TQQQ·SOXL 전용). 원금 1 기준."""
+    from .laoer_v4 import run_laoer_v4
 
-    def t_value() -> float:
-        return np.ceil((cum_buy / one_buy) * 10.0 - 1e-10) / 10.0 if one_buy > 0 else 0.0
-
-    def do_buy(spend: float, price: float) -> None:
-        nonlocal cash, shares, avg, cum_buy, buy_count
-        spend = min(spend, cash / (1.0 + cost_rate))
-        if spend <= 0:
-            return
-        q = spend / price
-        avg = (avg * shares + spend) / (shares + q)
-        shares += q
-        cum_buy += spend
-        cash -= spend * (1.0 + cost_rate)
-        buy_count += 1
-
-    def do_sell(q: float, price: float) -> None:
-        nonlocal cash, shares, cum_buy
-        if q <= 0:
-            return
-        cash += q * price * (1.0 - cost_rate)
-        shares -= q
-        cum_buy = max(cum_buy - q * avg, 0.0)
-
-    for px, hi in zip(prices, highs):
-        if shares <= 1e-12 and cum_buy <= 1e-12:
-            waiting = False
-            do_buy(one_buy, px)
-            equities.append(cash + shares * px)
-            continue
-        t = t_value()
-        offset = (15.0 - 1.5 * t) / 100.0 if version == "V3.0" else (target - t / 2) / 100.0
-        star_pct = 0.15 if version == "V3.0" else target / 100.0
-        pre_shares = shares
-        q1, q2 = pre_shares * 0.25, pre_shares * 0.75
-        s1 = px >= avg * (1.0 + offset) * (1.0 + fill_buffer) * (1.0 - 1e-12)
-        s2 = hi >= avg * (1.0 + star_pct) * (1.0 + fill_buffer) * (1.0 - 1e-12)
-        if s1:
-            do_sell(q1, px)
-        if s2:
-            do_sell(q2, avg * (1.0 + star_pct))
-        if s1 and s2:
-            if version == "V3.0":
-                set_principal = cash
-            one_buy = set_principal / splits
-            shares, avg, cum_buy = 0.0, 0.0, 0.0
-            waiting = False
-            equities.append(cash)
-            continue
-
-        # 전체 엔진과 동일하게, 소진되면 세트가 끝날 때까지 매수를 멈춘다(대기).
-        if cum_buy >= set_principal - one_buy * 0.9:
-            waiting = True
-        if not waiting:
-            t = t_value()
-            offset = (15.0 - 1.5 * t) / 100.0 if version == "V3.0" else (target - t / 2) / 100.0
-            remaining = max(set_principal - cum_buy, 0.0)
-            budget = min(one_buy, remaining, cash)
-            spend = 0.0
-            if t < 20.0:
-                half = budget / 2
-                if px <= avg * (1.0 - fill_buffer) * (1.0 + 1e-12):
-                    spend += half
-                if px <= avg * (1.0 + offset) * (1.0 - fill_buffer) * (1.0 + 1e-12):
-                    spend += half
-            elif px <= avg * (1.0 + offset) * (1.0 - fill_buffer) * (1.0 + 1e-12):
-                spend = budget
-            do_buy(spend, px)
-        equities.append(cash + shares * px)
-
-    equity = pd.Series(equities, index=ohlc.index)
+    r = run_laoer_v4(ohlc, "laoer", 1.0, symbol, fee_bp=fee_bp)
+    equity = r.equity
     final = float(equity.iloc[-1])
+    days = max((equity.index[-1] - equity.index[0]).days, 1)
+    buys = int((r.cash_series.diff() < -1e-9).sum()) if r.cash_series is not None else 0
     return {
         "배수": final,
-        "XIRR": final ** (365.0 / max((ohlc.index[-1] - ohlc.index[0]).days, 1)) - 1.0,
+        "XIRR": final ** (365.0 / days) - 1.0,
         "MDD": mdd(equity),
-        "투자횟수": buy_count,
+        "투자횟수": buys,
     }
 
 
@@ -267,8 +185,6 @@ def optimize_routines(
     step_months: int = 6,
     initial_ratio: float = 0.5,
     fee_bp: float = 5.0,
-    laoer_version: str = "V2.2",
-    fill_buffer_bp: float = 20.0,
     min_windows: int = 5,
 ) -> pd.DataFrame:
     """후보 조합별 롤링 결과를 집계해 점수가 높은 순서로 반환한다."""
@@ -291,7 +207,9 @@ def optimize_routines(
         configs = []
         for asset in price_data:
             configs.append(RoutineConfig(asset, years, "거치식", "1회"))
-            configs.append(RoutineConfig(asset, years, "라오어 무한매수법", "매일 주문"))
+            # 라오어 V4.0은 TQQQ·SOXL만 지원
+            if str(asset).upper() in ("TQQQ", "SOXL"):
+                configs.append(RoutineConfig(asset, years, "라오어 무한매수법", "매일 주문"))
             for freq in FREQUENCIES:
                 configs.append(RoutineConfig(asset, years, "적립식", freq))
                 configs.append(RoutineConfig(asset, years, "거치식 후 적립식", freq))
@@ -305,7 +223,7 @@ def optimize_routines(
                 if len(window) < max(120, int(years * 200)):
                     continue
                 if cfg.strategy == "라오어 무한매수법":
-                    out = _laoer_result(window, fee_bp, laoer_version, fill_buffer_bp)
+                    out = _laoer_result(window, fee_bp, str(cfg.asset).upper())
                 else:
                     out = _contribution_result(
                         window["Close"].astype(float),

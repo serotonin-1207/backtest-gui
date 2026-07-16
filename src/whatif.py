@@ -4,7 +4,7 @@
 - 항상 오늘 기준(시작 = 최신 종가일에서 N년 전 첫 거래일, 종료 = 최신 확정 종가 ≈ 어제 종가).
 - 거치식: 시작일에 1천만원 전액 매수.
 - 적립식: 1천만원을 기간 내 매 거래일 균등 분할 매수(일별 매수액도 표기).
-- 라오어 V3.0: 공격형 무한매수법(20분할·복리)으로 1천만원 운용.
+- 라오어 V4.0: 무한매수법(40분할)으로 1천만원 운용 (TQQQ·SOXL 전용, 그 외 종목은 미표시).
 - 배당 재투자(수정종가) 반영, 세금·환율·수수료 미반영.
 """
 from __future__ import annotations
@@ -14,7 +14,7 @@ import pandas as pd
 import streamlit as st
 
 from .data_loader import get_price
-from .laoer_strategy import run_laoer
+from .laoer_v4 import SUPPORTED_SYMBOLS, run_laoer_v4
 
 _ASSETS = [("QQQ", "USD"), ("QLD", "USD"), ("TQQQ", "USD")]
 _PERIODS = [(10, "10년 전"), (5, "5년 전"), (1, "1년 전")]
@@ -46,13 +46,15 @@ def _compute(day_key: str) -> dict:
             lump_mult = e_px / start_px
             dca_shares = float((per_day / s.to_numpy()).sum())
             dca_mult = dca_shares * e_px / _INVEST
-            try:
-                laoer_final = run_laoer(
-                    ohlc, ticker, _INVEST, start=start_dt, end=e_dt, version="V3.0"
-                ).final_value
-                laoer_ret = laoer_final / _INVEST - 1.0
-            except Exception:
-                laoer_final, laoer_ret = None, None
+            laoer_final = laoer_ret = None
+            if ticker.upper() in SUPPORTED_SYMBOLS:  # 라오어 V4.0은 TQQQ·SOXL만
+                try:
+                    laoer_final = run_laoer_v4(
+                        ohlc, ticker, _INVEST, ticker.upper(), start=start_dt, end=e_dt
+                    ).final_value
+                    laoer_ret = laoer_final / _INVEST - 1.0
+                except Exception:
+                    laoer_final, laoer_ret = None, None
             rows[yrs] = {
                 "start": start_dt, "n_days": n, "per_day": per_day,
                 "lump_ret": lump_mult - 1.0, "lump_final": _INVEST * lump_mult,
@@ -90,7 +92,7 @@ def render_whatif_dashboard() -> None:
         st.caption(
             f"각 종목을 그 시점에 **1천만원** 넣어 **최신 종가({end_dt.date()})** 까지 보유한 결과입니다. "
             "**거치식**=시작일 전액 매수, **적립식**=기간 내 매 거래일 균등 분할, "
-            "**라오어**=공격형 무한매수법 V3.0(20분할·복리). "
+            "**라오어**=무한매수법 V4.0(40분할, TQQQ·SOXL만). "
             "배당 재투자 반영 · 세금·환율·수수료 미반영 · 매일 자동 갱신."
         )
         for yrs, label in _PERIODS:

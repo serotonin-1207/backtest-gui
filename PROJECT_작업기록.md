@@ -30,7 +30,7 @@ backtest_gui/
    ├─ gui.py                # 메인 GUI. render()→모드 분기, _render_backtest(), 팝업 다이얼로그들, APP_VERSION
    ├─ data_loader.py        # 데이터 로딩+캐시. ASSET_PRESETS, route_ticker, get_price, tax_category
    ├─ backtest_engine.py    # 거치식/적립식 엔진. BacktestResult, run_backtest (fee_bp/slippage_bp/realized_gains)
-   ├─ laoer_strategy.py     # 라오어 V2.2/V3.0. run_laoer(version=)
+   ├─ laoer_v4.py           # 라오어 무한매수법 V4.0(40분할·TQQQ·SOXL·GENERAL/REVERSE/COMPLETED). run_laoer_v4()
    ├─ cashflow_engine.py    # 불입/인출 이벤트 확장, dca_schedule
    ├─ metrics.py            # CAGR/MDD/XIRR/TWR/샤프/소르티노/칼마/무회복일
    ├─ currency.py           # 다중통화(KRW/USD/JPY/EUR/CNY/HKD), get_rates, get_fx_series, korean_money
@@ -67,14 +67,17 @@ backtest_gui/
 - **최장무회복일**: 전고점 달성일부터 미회복 최장 달력일 (v1.5.0에서 고점일 기준으로 정밀화)
 - **샤프** = mean(r)/std(r)×√252, **소르티노** = mean(r)/std(r<0)×√252, **칼마** = CAGR/|MDD|
 
-### 3-2. 라오어 무한매수법 (laoer_strategy.py)
-- **T값** = ceil(누적매수액/1회매수액 ×10)/10 (소수 둘째 자리 올림)
-- **V2.2** (안정·40분할·단리): 오프셋 = (10 − T/2)%. 전반전(T<20): 1회분 절반 '평단가 LOC' + 절반 '평단×(1+오프셋) LOC'. 후반전: 전체 오프셋 LOC. 매도: 보유 1/4 '평단×(1+오프셋) LOC' + 3/4 '평단×1.10 지정가'. 세트 종료 시 원금 동일(단리)
-- **V3.0** (공격·20분할·복리): 오프셋 = (15 − 1.5T)%, 지정가 +15%, 세트 종료 시 set_principal = cash (복리)
-- 체결 근사: LOC 매수 = 종가≤지정가→종가 체결 / LOC 매도 = 종가≥지정가→종가 / 지정가 매도 = 고가≥지정가→지정가 (합성 구간은 종가만)
-- 부분 매도 시 cum_buy −= 수량×평단 (원금 회수분 차감 → T 하락)
-- 소진(T≥39.1 근사: cum_buy ≥ principal − one_buy×0.9): 대기 or 쿼터손절(보유 25% 매도 후 재개)
-- 수수료: 회전액×(fee_bp+slip_bp)/1e4 현금 차감. 실현손익 = (순수령 − 수량×평단) 기록
+### 3-2. 라오어 무한매수법 V4.0 (laoer_v4.py) — v1.15.0에서 V2.2/V3.0 전면 대체
+- **40분할 고정, TQQQ·SOXL 전용.** run_laoer_v4(ohlc, name, principal, symbol, ...). 라이브 주문 명세를 일봉 백테스트로 각색.
+- **모드**: GENERAL / REVERSE / COMPLETED. T>39면 REVERSE 진입, 종가>평단×(TQQQ 0.85·SOXL 0.80)이면 GENERAL 복귀, 수량 0이면 COMPLETED→다음날 잔금으로 새 사이클(복리).
+- **별지점(GENERAL)** = 평단×(1+(base−coef·T)/100). TQQQ base15·coef0.75, SOXL base20·coef1.0. 매수점=별−0.01, 매도점=별.
+- **1회 매수금** = 잔금/(40−T). 전반전(0≤T<20): 절반 평단 LOC + 절반 별지점 LOC. 후반전(20≤T≤39): 전체 별지점 LOC.
+- **매도**: 매일 쿼터 LOC(floor(qty×0.25), 별지점) + 최종 지정가(qty−쿼터, 익절 TQQQ+15%·SOXL+20%, 고가≥지정가 체결).
+- **T 업데이트**: 전체매수 +1 / 절반 +0.5 / 쿼터매도만 T×0.75 / 지정가매도+매수 prev×0.25+1(또는+0.5) / 리버스매도 T×0.95 / 리버스매수 T+(40−T)×0.25.
+- **REVERSE**: 첫날 MOC 매도 floor(qty/20)·T×0.95. 이후 별지점=직전5일 종가평균, 종가≥별 매도(floor(qty/20)) / 종가≤별 쿼터매수(잔금/4).
+- **체결 근사(일봉)**: LOC매수 종가≤지정가→종가 / LOC매도 종가≥지정가→종가 / MOC 종가 / 지정가매도 고가≥지정가→지정가.
+- **§30 각색 결정**(코드 상단): LOC 사다리 없음, 초기매수=종가체결, 부분체결 이산(+1/+0.5), 수수료·세금은 현금만·T무관, 백테스트는 소수주(실매매 §27 floor).
+- **명세 §33 테스트 1~7** 전부 통과(결정론적 계산 함수). 외부자금 추가·중도인출 미지원(§15).
 
 ### 3-3. 적립식 현금관리 (cash_plan.py) — 검증값 100% 재현
 - 1일 투자금 = 총투자금/총거래일. 선투입 소진일 = 선투입/1일투자금
@@ -118,7 +121,10 @@ backtest_gui/
 | 1.8.0 | 최적의 투자 루틴 추천: QQQ·QLD·TQQQ, 5개 적립주기, 1~15년, 4개 투자방식 롤링 검증·위험한도·균형/수익/방어 점수, 경량 라오어·빠른 XIRR |
 | 1.9.0 | 사이드바 빠른 기간 버튼(1/5/10/15/20/25/30년, 현재 기준), 주요 폭락 시작일 버튼(닷컴/금융위기/코로나/2022긴축/**트럼프관세** → 최고점~오늘), 폭락 참고표·막대차트에 트럼프 관세(2025-02→04) 추가. 날짜는 session_state(bt_start_date/bt_end_date) + on_click 콜백 제어 |
 | 1.9.1 | 루틴 추천 버그 수정 3건(§8 ⑨~⑪): 경량 라오어 소진 대기 미유지·매수 예산 현금 상한 누락(변동장 최대 ±3%p → 전체 엔진과 1e-9 일치), 음수 점수 신뢰도 계수 역전, 위험한도 필터로 적립식 전멸 시 dimension_winners 크래시. 변동 경로 회귀 테스트 3개 추가(총 27개) |
-| 1.13.2 | 상단 대시보드 종목 카드에 라오어 V3.0 수익률 추가(거치식·적립식·라오어 3종 비교). whatif._compute에서 run_laoer(version='V3.0') 호출, 실패 시 '—' 처리 |
+| 1.15.0 | **라오어 V2.2/V3.0 전면 제거 → 라오어 무한매수법 V4.0 구현**(§3-2). laoer_strategy.py 삭제, laoer_v4.py 신설(40분할·TQQQ·SOXL·GENERAL/REVERSE/COMPLETED, 명세 §33 테스트 1~7 통과). gui(설정패널·run·라벨)/routine_optimizer(_laoer_result→V4·라오어는 TQQQ·SOXL만)/routine_optimizer_page(버전선택 제거)/whatif(대시보드 라오어 V4·TQQQ만) 재배선. 회귀테스트 26개 |
+| 1.14.0 | 방문자 카운터(오늘/누적, Google Apps Script 백엔드) 추가 |
+| 1.13.3~1.13.4 | 대시보드 종목순서 QQQ·QLD·TQQQ 정렬, 상하 간격 축소 |
+| 1.13.2 | 상단 대시보드 종목 카드에 라오어 수익률 추가(3종 비교) — v1.15.0에서 V4.0으로 대체 |
 | 1.13.1 | 상단 대시보드에 거치식·적립식 각각 표시(종목 카드에 두 방식 수익률+1천만 최종금액), 적립식 일별 매수액·거래일수 표기, 위치를 페이지 최상단(가이드바/참고자료 위)으로 이동 |
 | 1.13.0 | 가격 백테스트 상단 대시보드 추가(whatif.py): '💰 1천만원을 N년 전(10/5/1년) 샀다면?' TQQQ·QQQ·QLD 실측 수익률·1천만원 최종금액·CAGR. 오늘 기준 자동 계산(시작=최신종가-N년 첫거래일, 종료=최신 확정종가), 배당재투자(수정종가) 반영·세금/환율/수수료 제외, ttl 6h 일일 갱신. metric 카드 3주기×3종목 |
 | 1.12.1 | 공격형 전략 정리에 '레버리지 0 수렴/2배vs3배 최악장' 위험 섹션 |

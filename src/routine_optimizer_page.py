@@ -18,8 +18,6 @@ def _run_optimizer(
     step_months: int,
     initial_ratio: float,
     fee_bp: float,
-    laoer_version: str,
-    fill_buffer_bp: float,
 ) -> tuple[pd.DataFrame, str]:
     price_data = {ticker: get_price(ticker, "yahoo", "USD") for ticker in assets}
     common_start = max(df.index.min() for df in price_data.values())
@@ -31,8 +29,6 @@ def _run_optimizer(
         step_months=step_months,
         initial_ratio=initial_ratio,
         fee_bp=fee_bp,
-        laoer_version=laoer_version,
-        fill_buffer_bp=fill_buffer_bp,
     )
     return result, f"{common_start.date()} ~ {common_end.date()}"
 
@@ -90,7 +86,7 @@ def render_routine_optimizer() -> None:
             default=list(range(1, 11)),
             format_func=lambda y: f"{y}년",
         )
-        c1, c2, c3 = st.columns(3)
+        c1, c2 = st.columns(2)
         objective = c1.segmented_control(
             "추천 성향", ["균형", "수익 우선", "방어 우선"], default="균형"
         )
@@ -98,21 +94,18 @@ def render_routine_optimizer() -> None:
             "시작일 검증 간격", ["3개월", "6개월", "12개월"], index=2,
             help="짧을수록 더 많은 시작일을 검사하지만 계산 시간이 늘어납니다.",
         )
-        laoer_version = c3.selectbox("라오어 버전", ["V2.2", "V3.0"], index=0)
-        c4, c5, c6, c7 = st.columns(4)
+        c4, c5, c6 = st.columns(3)
         initial_pct = c4.slider(
             "거치식 후 적립식의 최초 투자비중", 10, 90, 50, 10,
             format="%d%%",
         )
         fee_bp = c5.number_input("편도 매매비용(bp)", 0.0, 100.0, 5.0, 1.0)
-        fill_buffer_bp = c6.number_input(
-            "라오어 체결 안전마진(bp)", 0.0, 200.0, 20.0, 5.0
-        )
-        max_mdd_pct = c7.slider(
+        max_mdd_pct = c6.slider(
             "감당 가능한 최대 낙폭", 20, 90, 60, 5,
             format="-%d%%",
             help="롤링 검증의 최악 MDD가 이 값보다 깊은 조합은 추천에서 제외합니다.",
         )
+        st.caption("라오어 무한매수법 V4.0(40분할)은 **TQQQ·SOXL**에만 적용됩니다.")
         submitted = st.form_submit_button(
             "전체 조합 분석하고 최적 루틴 추천", type="primary", width="stretch"
         )
@@ -130,8 +123,6 @@ def render_routine_optimizer() -> None:
                     step_months,
                     initial_pct / 100.0,
                     fee_bp,
-                    laoer_version,
-                    fill_buffer_bp,
                 )
             st.session_state["routine_optimizer_results"] = results
             st.session_state["routine_optimizer_period"] = period

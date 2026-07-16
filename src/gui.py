@@ -21,7 +21,7 @@ from .data_loader import (ASSET_PRESETS, INDEX_DIV_YIELD, PRICE_INDEX_TICKERS, S
                           cache_status, clear_cache, get_price, route_ticker, tax_category)
 from .excel_export import build_excel
 from .interpret import interpret_results
-from .laoer_strategy import run_laoer
+from .laoer_v4 import SUPPORTED_SYMBOLS, run_laoer_v4
 from .metrics import summarize, twr_index, xirr
 from .synthetic_etf import apply_dividend_addback, extend_with_synthetic
 from .tax_engine import apply_annual_tax_drag, compute_tax, tax_schedule_asset
@@ -30,7 +30,7 @@ from .validation import validate_intraday_ohlc, validate_synthetic
 OUT_DIR = Path(__file__).resolve().parent.parent / "output" / "reports"
 
 # 배포 버전 — 변경 사항을 올릴 때마다 갱신. 화면에 표시되어 "최신 반영 여부"를 눈으로 확인할 수 있음.
-APP_VERSION = "1.14.0 (2026-07-13) — 방문자 카운터(오늘/누적) 추가, Google Apps Script 백엔드(서비스 계정 불필요), 미설정 시 숨김"
+APP_VERSION = "1.15.0 (2026-07-16) — 라오어 V2.2/V3.0 전면 제거, 라오어 무한매수법 V4.0 구현(40분할·TQQQ·SOXL·GENERAL/REVERSE/COMPLETED)"
 
 MONEY_COLS = ["총투입금", "추가불입", "중도인출", "순투입금", "최종순자산", "총이자",
               "세금", "세후최종순자산", "매매비용"]
@@ -278,16 +278,16 @@ def _tax_info(r, fx_rates: dict):
 HELP = {
     "자산": "백테스트 대상. 프리셋에서 고르거나 아래 '사용자 티커'로 직접 추가 (6자리 숫자=한국, 알파벳=미국 자동 판별).",
     "시작기준": "실제 데이터일: 각 자산의 실제 데이터 시작일부터. 동일 시작일(합성): TQQQ/QLD 등 상장 이전 구간을 기초지수 일간수익률x배수로 합성해 채움 — 합성 구간은 결과에 [합성포함] 표시.",
-    "투자방식": "거치식: 시작일 전액 일시 투자 / 적립식: 주기별 분할 매수 / 라오어: 무한매수법(라오어 설정에서 V2.2·V3.0 선택). "
+    "투자방식": "거치식: 시작일 전액 일시 투자 / 적립식: 주기별 분할 매수 / 라오어: 무한매수법 V4.0(40분할·TQQQ·SOXL 전용). "
                "기본값은 거치식+적립식 동시 비교. 여러 개 고르면 선택 자산마다 각각 계산됩니다.",
     "티커추가": "티커를 입력하고 ➕추가를 누르면 존재하는 티커인지 확인 후 목록에 담깁니다. 6자리 숫자=한국, 알파벳=미국 자동 판별. "
                "목록의 ✖로 제거. 프리셋에 없는 종목(예: AAPL, NVDA, 000660)을 넣을 때 사용.",
     "불입인출": "특정 날짜의 추가 불입·중도 인출. 금액은 '투자금 기준 화폐'로 입력하며 자산 통화로 자동 환산. "
                "반복(매월/매년) 지정 가능. 모두 현금흐름으로 기록되어 XIRR에 정확히 반영됨.",
     "대출": "옵션 A(일시 대출형): 시작일 대출 실행, 매년 이자 차감(주식 매도), 종료일 원금 상환. 순자산 = 평가액 - 대출잔액.",
-    "라오어": "V2.2(안정형·40분할·단리): 매도목표 +10%, 오프셋 (10−T/2)%. "
-             "V3.0(공격형·20분할·복리): 매도목표 +15%, 오프셋 (15−1.5T)%, 세트마다 수익을 1회 매수금에 반영 → 수익·낙폭 모두 커짐. "
-             "전반전은 절반 평단 LOC + 절반 오프셋 LOC, 후반전은 오프셋 LOC 하나. 매일 1/4 LOC + 3/4 지정가 매도.",
+    "라오어": "라오어 무한매수법 V4.0 (40분할 고정, TQQQ·SOXL 전용). GENERAL: 1회 매수금=잔금/(40−T), "
+             "전반전(T<20) 절반 평단 LOC + 절반 별지점 LOC, 후반전(20≤T≤39) 별지점 LOC. 매일 1/4 별지점 LOC 매도 + 3/4 익절 지정가(TQQQ +15%·SOXL +20%). "
+             "T>39면 REVERSE(직전 5일 평균=별지점, 위 매도 T×0.95·아래 쿼터매수). 종가>평단×(TQQQ 0.85·SOXL 0.80)이면 GENERAL 복귀. 수량 0이면 사이클 완료(복리).",
     "세금비용": "세금 반영(미국 22%/국내ETF 15.4%/국내주식 비과세), 지수 총수익 보정, 환율 효과(언헤지 일별환율), 매매 수수료·슬리피지(bp). "
                "모두 기본 OFF = 세전·비용0. 켜면 세전/세후를 나란히 비교합니다.",
     "모드": "📈 가격 백테스트: 자산 가격 기준 수익 시뮬레이션. 💵 적립식 현금관리 계산기: 대기자금 RP운용·조달이자·수수료의 순효과 계산. 💬 의견 게시판: 사용자 의견·버그·개선 아이디어 수렴.",
@@ -313,9 +313,9 @@ GLOSSARY = {
     "원금 대비 배수": "최종 순자산 ÷ 순투입금. 10배면 넣은 돈이 10배가 됐다는 뜻.",
     "순투입금": "총투입금(원금+추가불입) − 중도인출. 실제로 내 주머니에서 나간 순액.",
     "로그 스케일": "차트 세로축을 배수 기준으로 표시(100→200과 1,000→2,000이 같은 높이). 장기 복리 성장 비교에 필수 — 선형축은 최근 구간만 커 보이는 착시를 만듦.",
-    "T값 (라오어)": "누적 매수액 ÷ 1회 매수액. 분할 수 중 몇 회차까지 썼는지. T<20 전반전, T≥20 후반전, 소진 근처면 원금 소진.",
-    "라오어 V2.2 / V3.0": "V2.2=안정형(40분할·단리·매도 +10%). V3.0=공격형(20분할·복리·매도 +15%, 오프셋 15−1.5T%). V3.0은 수익도 낙폭도 더 큼.",
-    "라오어 세트": "첫 매수부터 전량 매도(익절)까지의 한 사이클. 완료 세트 수가 많고 소요일이 짧을수록 회전이 잘 된 것.",
+    "T값 (라오어)": "진행 회차. 40분할 중 몇 회차까지 썼는지. T<20 전반전, 20≤T≤39 후반전, T>39면 리버스모드 진입.",
+    "라오어 V4.0": "40분할 고정·TQQQ·SOXL 전용. GENERAL/REVERSE/COMPLETED 3모드. 별지점=평단×(1+(base−coef·T)/100), 익절 TQQQ +15%·SOXL +20%. 리버스는 직전 5일 평균 기준 위 매도·아래 쿼터매수.",
+    "라오어 세트": "첫 매수부터 전량 매도(익절)까지의 한 사이클. 완료 세트 수가 많고 소요일이 짧을수록 회전이 잘 된 것. 완료 후 잔금으로 다음 사이클(복리).",
     "LOC 주문": "Limit On Close. 종가가 지정가보다 유리하면 종가로 체결되는 주문. 백테스트에서는 '종가 ≤ 매수지정가면 종가 매수'로 근사.",
     "MOC 주문": "Market On Close. 종가에 무조건 체결되는 시장가 주문.",
     "지정가 주문": "지정한 가격 이상(매도)/이하(매수)에서만 체결. 백테스트에서는 당일 고가가 지정가에 닿으면 지정가로 체결된 것으로 근사.",
@@ -344,7 +344,7 @@ CHART_GUIDE = """
 
 **월별 히트맵** — 파란색(하락)이 연속으로 몰린 구간이 고통 구간. 하락이 몇 달씩 이어졌는지 확인하세요.
 
-**라오어 T값 차트** — T가 39.1(빨간 점선)에 자주 닿으면 원금 소진이 잦다는 뜻 = 하락장에서 물을 다 쓴 상태.
+**라오어 T값 차트** — T가 39를 넘으면(빨간 점선) 리버스모드 진입 = 하락장에서 물을 다 쓴 상태.
 T가 낮은 상태로 세트가 빨리 끝날수록 이상적입니다.
 
 **현금 비중** — 라오어·적립식에서 현금이 얼마나 놀고 있었는지. 현금 비중이 높으면 MDD는 낮아지지만
@@ -435,7 +435,7 @@ def render():
 
 def _render_backtest():
     st.title("📈 세로토닌 백테스트")
-    st.caption("제작 serotonin(이은호) · 미국·한국 지수/ETF/개별종목 · 거치식/적립식/라오어(V2.2·V3.0) · "
+    st.caption("제작 serotonin(이은호) · 미국·한국 지수/ETF/개별종목 · 거치식/적립식/라오어 V4.0(TQQQ·SOXL) · "
                "⚠️ 백테스트 결과는 미래 수익을 보장하지 않습니다. 레버리지 상품은 변동성 감쇠 위험이 있습니다.")
 
     # ================================================== 사이드바 (설정 패널)
@@ -514,26 +514,14 @@ def _render_backtest():
             if dca_span == "직접입력":
                 dca_years = st.number_input("적립 기간(년)", 0.5, 50.0, 3.0, 0.5)
 
-        with st.expander("♾️ 라오어 설정 (투자방식에 '라오어' 선택 시)", expanded=False):
-            laoer_ver_label = st.selectbox("라오어 버전",
-                                           ["V2.2 (안정형·40분할·단리)", "V3.0 (공격형·20분할·복리)"], index=0,
-                                           help="V2.2: 매도목표 +10%, 매수/매도 오프셋 (10−T/2)%. "
-                                                "V3.0: 매도목표 +15%, 오프셋 (15−1.5T)%, 세트마다 복리로 1회 매수금 증가 → "
-                                                "수익·낙폭 모두 커짐.")
-            laoer_version = "V3.0" if laoer_ver_label.startswith("V3.0") else "V2.2"
-            _def_split = 20 if laoer_version == "V3.0" else 40
-            _def_target = 15.0 if laoer_version == "V3.0" else 10.0
+        with st.expander("♾️ 라오어 무한매수법 V4.0 (투자방식에 '라오어' 선택 시)", expanded=False):
             st.caption(HELP["라오어"])
-            laoer_splits = st.number_input("분할 수", 10, 100, _def_split)
-            laoer_target = st.number_input("지정가 매도 목표(%)", 1.0, 30.0, _def_target, 0.5)
-            laoer_boundary = st.number_input("전/후반 경계 T", 5.0, 40.0, 20.0, 1.0)
-            laoer_exhaustion = st.selectbox("원금 소진 시", ["대기", "쿼터손절"])
-            laoer_contrib = st.selectbox("라오어 중 추가불입 처리",
-                                         ["다음 세트부터 반영", "즉시 현금 추가"])
-            fill_buffer_bp = st.number_input(
-                "체결 안전마진(bp)", 0.0, 200.0, 0.0, 5.0,
-                help="일봉 체결의 낙관 편향을 줄이는 보수적 조건입니다. 예: 20bp면 매수는 지정가보다 "
-                     "0.2% 더 낮아야, 매도는 0.2% 더 높아야 체결된 것으로 봅니다. 0은 기존 방식입니다.",
+            st.markdown(
+                "- **40분할 고정**, 지원 종목 **TQQQ · SOXL** 뿐입니다(다른 종목은 라오어 미적용).\n"
+                "- 모드: **GENERAL**(전반전 T<20 절반+절반 매수 / 후반전 20≤T≤39 별지점 매수) → "
+                "**REVERSE**(T>39 진입, 직전 5일 평균=별지점, 위 매도·아래 쿼터매수) → 매도목표 도달 시 **사이클 완료**(복리).\n"
+                "- 종목별 상수: TQQQ 익절 +15%·별 (15−0.75T)% / SOXL 익절 +20%·별 (20−T)%. "
+                "매매비용은 아래 '현실화'의 수수료·슬리피지로 반영됩니다."
             )
 
         with st.expander("💸 추가 불입 / 중도 인출", expanded=False):
@@ -660,16 +648,17 @@ def _render_backtest():
             for mode in modes:
                 job += 1
                 prog.progress(job / total_jobs, text=f"{tgt['name']} · {mode} 계산 중…")
-                sname = f"{tgt['name']}·{mode}{laoer_version if mode == '라오어' else ''}"
+                sname = f"{tgt['name']}·{mode}{' V4.0' if mode == '라오어' else ''}"
                 try:
                     if mode == "라오어":
-                        r = run_laoer(ohlc, sname, cap_a, start=start_date, end=end_date,
-                                      splits=int(laoer_splits), target_pct=laoer_target,
-                                      boundary_t=laoer_boundary, exhaustion=laoer_exhaustion,
-                                      events=events_a, contrib_mode=laoer_contrib,
-                                      currency=acur, synthetic_mask=mask,
-                                      fee_bp=fee_bp, slippage_bp=slip_bp,
-                                      fill_buffer_bp=fill_buffer_bp, version=laoer_version)
+                        sym = str(tgt["ticker"]).upper()
+                        if sym not in SUPPORTED_SYMBOLS:
+                            raise ValueError(
+                                f"라오어 V4.0은 TQQQ·SOXL만 지원합니다(선택: {tgt['ticker']}). "
+                                "라오어를 쓰려면 TQQQ 또는 SOXL을 선택하세요.")
+                        r = run_laoer_v4(ohlc, sname, cap_a, sym,
+                                         start=start_date, end=end_date,
+                                         fee_bp=fee_bp, slippage_bp=slip_bp, currency=acur)
                     else:
                         r = run_backtest(ohlc, sname, mode, cap_a, start=start_date, end=end_date,
                                          dca_freq=dca_freq, dca_years=dca_years, events=events_a,
@@ -700,8 +689,7 @@ def _render_backtest():
             "기준화폐": f"{base_code} ({SUPPORTED.get(base_code, ('', ''))[1]})",
             "적용환율": f"{rates_str} (기준일 {fx_date})" if rates_str else "환산 없음",
             "적립주기": dca_freq, "적립기간": dca_span,
-            "라오어": f"{laoer_version} {laoer_splits}분할, 목표 {laoer_target}%, 경계 T={laoer_boundary}, "
-                      f"소진={laoer_exhaustion}, 체결 안전마진={fill_buffer_bp:.0f}bp",
+            "라오어": "무한매수법 V4.0 (40분할, TQQQ·SOXL, GENERAL/REVERSE 자동)",
             "대출": f"{'ON' if loan_on else 'OFF'} (금액 {loan_amount:,.0f} {base_code}, 금리 {loan_rate:.2%})",
             "불입/인출 이벤트 수": len(events),
             "세금": f"{'ON (미국22%/국내ETF15.4%)' if tax_on else 'OFF (세전)'}",
@@ -946,7 +934,7 @@ def _render_backtest():
     with tabs[4]:
         lao = [r for r in results if r.laoer_sets is not None and not r.laoer_sets.empty]
         if not lao:
-            st.info("라오어 전략이 없습니다. 사이드바에서 '라오어 V2.2'를 선택하세요.")
+            st.info("라오어 전략이 없습니다. 사이드바에서 자산을 **TQQQ 또는 SOXL**로, 투자방식에 **'라오어'**를 선택하세요.")
         else:
             st.plotly_chart(fig_t_series(lao), width="stretch")
             for r in lao:
@@ -986,7 +974,7 @@ def _render_backtest():
             try:
                 iv = validate_intraday_ohlc(intraday_ticker.strip().upper())
                 st.dataframe(pd.DataFrame([iv]), hide_index=True, width="stretch")
-                st.info("오차가 크면 라오어 설정의 **체결 안전마진(bp)**과 슬리피지를 높여 "
+                st.info("오차가 크면 **현실화 옵션의 매매 수수료·슬리피지(bp)**를 높여 "
                         "보수적으로 다시 계산하세요. 장기 분봉은 무료 소스 제한으로 제공되지 않습니다.")
             except Exception as e:
                 st.error(f"분봉 검증 실패: {e}")

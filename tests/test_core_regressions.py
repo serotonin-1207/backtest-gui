@@ -13,14 +13,29 @@ from src.currency import convert
 from src.data_loader import ASSET_PRESETS, route_ticker, tax_category
 from src.gui import _at
 from src.indices_ref import _chart_data, _fig, _fig_since_1990s
-from src.laoer_strategy import run_laoer
+from src import laoer_v4
+from src.laoer_v4 import (
+    calculate_final_sell_price,
+    calculate_general_daily_budget,
+    calculate_general_quarter_sell_quantity,
+    calculate_general_star_percent,
+    calculate_general_star_price,
+    calculate_reverse_buy_budget,
+    calculate_reverse_sell_quantity,
+    is_cycle_completed,
+    run_laoer_v4,
+    should_enter_reverse_mode,
+    should_exit_reverse_mode,
+    update_T_after_general_quarter_sell,
+    update_T_after_reverse_buy,
+    update_T_after_reverse_sell,
+)
 from src.metrics import cagr, mdd, twr_index, xirr
 from src.synthetic_etf import apply_dividend_addback, synthesize_close
 from src.tax_engine import apply_annual_tax_drag, compute_tax, tax_schedule_asset
 from src.routine_optimizer import (
     _contribution_result,
     _fast_xirr,
-    _laoer_result,
     _score,
     dimension_winners,
     optimize_routines,
@@ -74,55 +89,46 @@ class CoreRegressionTests(unittest.TestCase):
             set(winners), {"전체", "투자주기", "투자기간", "자산", "투자방식"}
         )
 
-    def test_fast_laoer_matches_full_engine_without_events(self):
-        idx = pd.bdate_range("2020-01-01", periods=500)
-        close = pd.Series(
-            100.0 * (1.0003 ** pd.RangeIndex(len(idx))), index=idx
-        )
-        ohlc = pd.DataFrame({"Close": close, "High": close * 1.005}, index=idx)
-        fast = _laoer_result(ohlc, 5.0, "V2.2", 20.0)
-        full = run_laoer(
-            ohlc,
-            "full",
-            1.0,
-            fee_bp=5.0,
-            fill_buffer_bp=20.0,
-            version="V2.2",
-        )
-        self.assertAlmostEqual(fast["배수"], full.final_value, places=9)
-        self.assertAlmostEqual(fast["MDD"], mdd(full.equity), places=9)
+    def test_laoer_v4_spec_scenarios(self):
+        # 명세 §33 테스트 1~7 (결정론적 계산 함수)
+        self.assertAlmostEqual(calculate_general_star_percent("TQQQ", 10), 7.5)
+        self.assertAlmostEqual(calculate_general_star_price("TQQQ", 50, 10), 53.75)
+        self.assertAlmostEqual(calculate_general_daily_budget(15000, 10), 500.0)
+        self.assertAlmostEqual(calculate_general_star_percent("TQQQ", 30), -7.5)
+        self.assertAlmostEqual(calculate_general_star_price("TQQQ", 50, 30), 46.25)
+        self.assertAlmostEqual(calculate_general_daily_budget(5000, 30), 500.0)
+        self.assertEqual(calculate_general_quarter_sell_quantity(200), 50)
+        self.assertAlmostEqual(update_T_after_general_quarter_sell(24), 18.0)
+        self.assertTrue(should_enter_reverse_mode("GENERAL", 39.5))
+        self.assertEqual(calculate_reverse_sell_quantity(200), 10)
+        self.assertAlmostEqual(update_T_after_reverse_sell(39.5), 37.525)
+        self.assertAlmostEqual(calculate_reverse_buy_budget(700), 175.0)
+        self.assertAlmostEqual(update_T_after_reverse_buy(37.525), 38.14375)
+        self.assertTrue(should_exit_reverse_mode("TQQQ", 42.60, 50))
+        self.assertFalse(should_exit_reverse_mode("TQQQ", 42.40, 50))
+        self.assertTrue(is_cycle_completed(0))
+        # SOXL 상수
+        self.assertAlmostEqual(calculate_general_star_percent("SOXL", 0), 20.0)
+        self.assertAlmostEqual(calculate_final_sell_price("SOXL", 50), 60.0)
 
-    def test_fast_laoer_matches_full_engine_on_volatile_paths(self):
-        # 상승만으로는 소진(대기)·현금 부족 경로가 실행되지 않으므로
-        # 폭락 후 회복·약세장·고변동 랜덤 경로에서 전체 엔진과 일치를 확인한다.
-        rng = np.random.default_rng(42)
-        paths = [
-            np.concatenate(
-                [np.full(60, 0.001), np.full(120, -0.006), np.full(320, 0.004)]
-            ),
-            np.full(400, -0.002) + rng.normal(0, 0.01, 400),
-            rng.normal(0.0005, 0.02, 600),
-            rng.normal(0.0005, 0.02, 600),
-        ]
-        for returns in paths:
-            idx = pd.bdate_range("2020-01-02", periods=len(returns))
-            close = 100.0 * np.cumprod(1.0 + returns)
-            high = close * (1.0 + np.abs(rng.normal(0.004, 0.003, len(close))))
-            ohlc = pd.DataFrame({"Close": close, "High": high}, index=idx)
-            for version, splits, target in (("V2.2", 40, 10.0), ("V3.0", 20, 15.0)):
-                fast = _laoer_result(ohlc, 5.0, version, 20.0)
-                full = run_laoer(
-                    ohlc,
-                    "full",
-                    1.0,
-                    fee_bp=5.0,
-                    fill_buffer_bp=20.0,
-                    version=version,
-                    splits=splits,
-                    target_pct=target,
-                )
-                self.assertAlmostEqual(fast["배수"], full.final_value, places=9)
-                self.assertAlmostEqual(fast["MDD"], mdd(full.equity), places=9)
+    def test_laoer_v4_sim_invariants(self):
+        # 폭락 후 회복 경로에서 현금 음수 없음·T 비음수·낙폭이 buy&hold보다 얕음
+        rng = np.random.default_rng(7)
+        returns = np.concatenate(
+            [np.full(80, 0.002), np.full(120, -0.01), np.full(300, 0.004)]
+        ) + rng.normal(0, 0.008, 500)
+        idx = pd.bdate_range("2020-01-02", periods=len(returns))
+        close = 100.0 * np.cumprod(1.0 + returns)
+        high = close * (1.0 + np.abs(rng.normal(0.004, 0.003, len(close))))
+        ohlc = pd.DataFrame({"Close": close, "High": high}, index=idx)
+        r = run_laoer_v4(ohlc, "t", 1_000_000.0, "TQQQ", fee_bp=5.0)
+        self.assertGreaterEqual(float(r.cash_series.min()), -1e-6)
+        self.assertGreaterEqual(float(r.t_series.min()), -1e-9)
+        self.assertLessEqual(float(r.t_series.max()), 40.5)
+        hold_mdd = mdd(pd.Series(close, index=idx))
+        self.assertGreater(mdd(r.equity), hold_mdd)  # 라오어 낙폭이 더 얕음
+        with self.assertRaises(laoer_v4.UnsupportedSymbolError):
+            run_laoer_v4(ohlc, "t", 1.0, "QQQ")
 
     def test_score_penalizes_fewer_windows_even_when_negative(self):
         row = {
@@ -213,18 +219,6 @@ class CoreRegressionTests(unittest.TestCase):
         self.assertAlmostEqual(sum(schedule.values()), 300.0)
         self.assertAlmostEqual(schedule[2023], 100.0)
 
-    def test_fill_buffer_blocks_borderline_laoer_sale(self):
-        idx = pd.bdate_range("2024-01-01", periods=3)
-        ohlc = pd.DataFrame(
-            {"Close": [100.0, 110.05, 110.05], "High": [100.0, 110.05, 110.05]},
-            index=idx,
-        )
-        normal = run_laoer(ohlc, "normal", 1000.0, splits=1, fill_buffer_bp=0)
-        buffered = run_laoer(ohlc, "buffered", 1000.0, splits=1, fill_buffer_bp=100)
-        normal_done = normal.laoer_sets["종료사유"].eq("전량매도").sum()
-        buffered_done = buffered.laoer_sets["종료사유"].eq("전량매도").sum()
-        self.assertGreater(normal_done, buffered_done)
-
     def test_cash_plan_reference_value(self):
         result = run_scenario(
             total=300_000_000,
@@ -267,25 +261,11 @@ class CoreRegressionTests(unittest.TestCase):
         )
         self.assertEqual(_at(s, "2024-01-06"), 1300.0)
 
-    def test_laoer_fee_never_makes_cash_negative(self):
-        idx = pd.bdate_range("2024-01-01", periods=3)
-        ohlc = pd.DataFrame({"Close": 100.0, "High": 100.0}, index=idx)
-        result = run_laoer(
-            ohlc, "fee-test", principal=1000.0, splits=1, fee_bp=100.0
-        )
-        self.assertGreaterEqual(float(result.cash_series.min()), -1e-9)
-
-    def test_laoer_withdrawal_accounts_for_selling_cost(self):
-        idx = pd.bdate_range("2024-01-01", periods=3)
-        ohlc = pd.DataFrame({"Close": 100.0, "High": 100.0}, index=idx)
-        result = run_laoer(
-            ohlc,
-            "withdraw-test",
-            principal=1000.0,
-            splits=1,
-            fee_bp=100.0,
-            events=[{"date": idx[1], "amount": 1000.0, "kind": "인출"}],
-        )
+    def test_laoer_v4_fee_never_makes_cash_negative(self):
+        idx = pd.bdate_range("2024-01-01", periods=60)
+        close = pd.Series(100.0 * (0.99 ** np.arange(60)), index=idx)
+        ohlc = pd.DataFrame({"Close": close, "High": close}, index=idx)
+        result = run_laoer_v4(ohlc, "fee-test", 1000.0, "TQQQ", fee_bp=100.0)
         self.assertGreaterEqual(float(result.cash_series.min()), -1e-9)
 
     def test_normalized_equity_chart_uses_twr(self):
