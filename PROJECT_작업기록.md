@@ -31,6 +31,7 @@ backtest_gui/
    ├─ data_loader.py        # 데이터 로딩+캐시. ASSET_PRESETS, route_ticker, get_price, tax_category
    ├─ backtest_engine.py    # 거치식/적립식 엔진. BacktestResult, run_backtest (fee_bp/slippage_bp/realized_gains)
    ├─ laoer_v4.py           # 라오어 무한매수법 V4.0(40분할·TQQQ·SOXL·GENERAL/REVERSE/COMPLETED). run_laoer_v4()
+   ├─ firefighter_fund.py   # 대한소방공제회 퇴직급여 시뮬(별도 클래스 FirefighterFund·run_firefighter_fund). 투자방식 '소방공제회'
    ├─ cashflow_engine.py    # 불입/인출 이벤트 확장, dca_schedule
    ├─ metrics.py            # CAGR/MDD/XIRR/TWR/샤프/소르티노/칼마/무회복일
    ├─ currency.py           # 다중통화(KRW/USD/JPY/EUR/CNY/HKD), get_rates, get_fx_series, korean_money
@@ -121,6 +122,7 @@ backtest_gui/
 | 1.8.0 | 최적의 투자 루틴 추천: QQQ·QLD·TQQQ, 5개 적립주기, 1~15년, 4개 투자방식 롤링 검증·위험한도·균형/수익/방어 점수, 경량 라오어·빠른 XIRR |
 | 1.9.0 | 사이드바 빠른 기간 버튼(1/5/10/15/20/25/30년, 현재 기준), 주요 폭락 시작일 버튼(닷컴/금융위기/코로나/2022긴축/**트럼프관세** → 최고점~오늘), 폭락 참고표·막대차트에 트럼프 관세(2025-02→04) 추가. 날짜는 session_state(bt_start_date/bt_end_date) + on_click 콜백 제어 |
 | 1.9.1 | 루틴 추천 버그 수정 3건(§8 ⑨~⑪): 경량 라오어 소진 대기 미유지·매수 예산 현금 상한 누락(변동장 최대 ±3%p → 전체 엔진과 1e-9 일치), 음수 점수 신뢰도 계수 역전, 위험한도 필터로 적립식 전멸 시 dimension_winners 크래시. 변동 경로 회귀 테스트 3개 추가(총 27개) |
+| 1.16.0 | 투자방식에 **'소방공제회'**(대한소방공제회 퇴직급여) 추가(firefighter_fund.py, 기존 QQQ 코드 보존). 일 단위 연복리(윤년366/평년365, daily_rate=(1+r)^(1/일수)−1), 부가금에만 과세, 월 납입일(기본20)·이율·세율 설정. 앱 적용: 5.03%(2026-01-01 공식이율, 그 외 가정)·해약금 무시·부가금100%·저세율(1.5%), 월납입=투자금÷기간개월수, 환율 미적용, 자산과 무관하게 1회 계산. 결과=BacktestResult(세후 곡선)+firefighter_summary(세전/부가금/세금/실질/XIRR), KPI뒤 상세카드+QQQ 세후 비교. '20년+ 저세율'은 안내 문구만. 회귀테스트 27개 |
 | 1.15.0 | **라오어 V2.2/V3.0 전면 제거 → 라오어 무한매수법 V4.0 구현**(§3-2). laoer_strategy.py 삭제, laoer_v4.py 신설(40분할·TQQQ·SOXL·GENERAL/REVERSE/COMPLETED, 명세 §33 테스트 1~7 통과). gui(설정패널·run·라벨)/routine_optimizer(_laoer_result→V4·라오어는 TQQQ·SOXL만)/routine_optimizer_page(버전선택 제거)/whatif(대시보드 라오어 V4·TQQQ만) 재배선. 회귀테스트 26개 |
 | 1.14.0 | 방문자 카운터(오늘/누적, Google Apps Script 백엔드) 추가 |
 | 1.13.3~1.13.4 | 대시보드 종목순서 QQQ·QLD·TQQQ 정렬, 상하 간격 축소 |

@@ -22,6 +22,7 @@ from .data_loader import (ASSET_PRESETS, INDEX_DIV_YIELD, PRICE_INDEX_TICKERS, S
 from .excel_export import build_excel
 from .interpret import interpret_results
 from .laoer_v4 import SUPPORTED_SYMBOLS, run_laoer_v4
+from .firefighter_fund import DEFAULT_RATE, DEFAULT_TAX, run_firefighter_fund
 from .metrics import summarize, twr_index, xirr
 from .synthetic_etf import apply_dividend_addback, extend_with_synthetic
 from .tax_engine import apply_annual_tax_drag, compute_tax, tax_schedule_asset
@@ -30,7 +31,7 @@ from .validation import validate_intraday_ohlc, validate_synthetic
 OUT_DIR = Path(__file__).resolve().parent.parent / "output" / "reports"
 
 # 배포 버전 — 변경 사항을 올릴 때마다 갱신. 화면에 표시되어 "최신 반영 여부"를 눈으로 확인할 수 있음.
-APP_VERSION = "1.15.0 (2026-07-16) — 라오어 V2.2/V3.0 전면 제거, 라오어 무한매수법 V4.0 구현(40분할·TQQQ·SOXL·GENERAL/REVERSE/COMPLETED)"
+APP_VERSION = "1.16.0 (2026-07-16) — 투자방식에 '소방공제회'(대한소방공제회 퇴직급여) 추가: 5.03% 일복리·부가금 저세율·해약금 무시·QQQ 세후 비교"
 
 MONEY_COLS = ["총투입금", "추가불입", "중도인출", "순투입금", "최종순자산", "총이자",
               "세금", "세후최종순자산", "매매비용"]
@@ -278,8 +279,12 @@ def _tax_info(r, fx_rates: dict):
 HELP = {
     "자산": "백테스트 대상. 프리셋에서 고르거나 아래 '사용자 티커'로 직접 추가 (6자리 숫자=한국, 알파벳=미국 자동 판별).",
     "시작기준": "실제 데이터일: 각 자산의 실제 데이터 시작일부터. 동일 시작일(합성): TQQQ/QLD 등 상장 이전 구간을 기초지수 일간수익률x배수로 합성해 채움 — 합성 구간은 결과에 [합성포함] 표시.",
-    "투자방식": "거치식: 시작일 전액 일시 투자 / 적립식: 주기별 분할 매수 / 라오어: 무한매수법 V4.0(40분할·TQQQ·SOXL 전용). "
+    "투자방식": "거치식: 시작일 전액 일시 투자 / 적립식: 주기별 분할 매수 / 라오어: 무한매수법 V4.0(40분할·TQQQ·SOXL 전용) / "
+               "소방공제회: 대한소방공제회 퇴직급여(5.03% 복리, 자산과 무관하게 1회 계산). "
                "기본값은 거치식+적립식 동시 비교. 여러 개 고르면 선택 자산마다 각각 계산됩니다.",
+    "소방공제회": "대한소방공제회 퇴직급여(적립식). 일 단위 연복리(윤년 366/평년 365), 부가금에만 과세. "
+               "연 5.03%는 2026-01-01 적용 공식 이율(그 외는 가정). 해약금 무시·부가금 100% 지급, 저세율 기준 비교. "
+               "월 납입액=투자금÷기간개월수(QQQ 적립식과 동일 조건), 환율 미적용.",
     "티커추가": "티커를 입력하고 ➕추가를 누르면 존재하는 티커인지 확인 후 목록에 담깁니다. 6자리 숫자=한국, 알파벳=미국 자동 판별. "
                "목록의 ✖로 제거. 프리셋에 없는 종목(예: AAPL, NVDA, 000660)을 넣을 때 사용.",
     "불입인출": "특정 날짜의 추가 불입·중도 인출. 금액은 '투자금 기준 화폐'로 입력하며 자산 통화로 자동 환산. "
@@ -493,7 +498,7 @@ def _render_backtest():
         st.caption("📉 폭락 구간·지수 총정리·도움말·용어사전은 상단 '참고 자료'에서 볼 수 있습니다.")
 
         modes = st.multiselect("투자 방식 (자산마다 각각 적용)",
-                               ["거치식", "적립식", "라오어"], default=["거치식", "적립식"],
+                               ["거치식", "적립식", "라오어", "소방공제회"], default=["거치식", "적립식"],
                                help=HELP["투자방식"])
 
         base_label = st.selectbox("투자금 기준 화폐", list(CURRENCY_LABELS.values()), index=0,
@@ -522,6 +527,21 @@ def _render_backtest():
                 "**REVERSE**(T>39 진입, 직전 5일 평균=별지점, 위 매도·아래 쿼터매수) → 매도목표 도달 시 **사이클 완료**(복리).\n"
                 "- 종목별 상수: TQQQ 익절 +15%·별 (15−0.75T)% / SOXL 익절 +20%·별 (20−T)%. "
                 "매매비용은 아래 '현실화'의 수수료·슬리피지로 반영됩니다."
+            )
+
+        with st.expander("🚒 소방공제회 설정 (투자방식에 '소방공제회' 선택 시)", expanded=False):
+            st.caption(HELP["소방공제회"])
+            fc1, fc2, fc3 = st.columns(3)
+            ff_rate = fc1.number_input("연이율(%)", 1.0, 10.0, DEFAULT_RATE * 100, 0.01,
+                                       help="5.03%=2026-01-01 적용 공식 이율. 그 외는 가정.") / 100.0
+            ff_payday = fc2.number_input("월 납입일", 1, 31, 20)
+            ff_tax = fc3.selectbox("부가금 세율", ["저세율 1.5%", "면세 0%", "기본 3.3%"], index=0)
+            ff_tax_rate = {"저세율 1.5%": 0.015, "면세 0%": 0.0, "기본 3.3%": 0.033}[ff_tax]
+            ff_infl = st.number_input("물가상승률(%, 실질가치용·가정)", 0.0, 10.0, 2.5, 0.1) / 100.0
+            st.caption(
+                "월 납입액 = 위 '투자금'을 백테스트 기간의 개월수로 나눈 값(QQQ 적립식과 동일 조건). "
+                "**해약금(중도해약)은 무시**하고 부가금 100% 지급으로 계산합니다. "
+                "ℹ️ 참고: **20년 이상 장기 가입 시 저세율이 적용**됩니다(본 비교는 저세율 기준)."
             )
 
         with st.expander("💸 추가 불입 / 중도 인출", expanded=False):
@@ -612,7 +632,9 @@ def _render_backtest():
 
         results, errors, stale_warn = [], [], []
         prog = st.progress(0.0, text="데이터 로딩 중…")
-        total_jobs = len(targets) * len(modes)
+        _asset_modes = [m for m in modes if m != "소방공제회"]
+        total_jobs = len(targets) * len(_asset_modes) + (1 if "소방공제회" in modes else 0)
+        total_jobs = max(total_jobs, 1)
         job = 0
         for tgt in targets:
             try:
@@ -646,6 +668,8 @@ def _render_backtest():
             events_a = [{**e, "amount": convert(e["amount"], base_code, acur, fx_rates)}
                         for e in events]
             for mode in modes:
+                if mode == "소방공제회":
+                    continue  # 자산과 무관 → 자산 루프 밖에서 1회만 계산
                 job += 1
                 prog.progress(job / total_jobs, text=f"{tgt['name']} · {mode} 계산 중…")
                 sname = f"{tgt['name']}·{mode}{' V4.0' if mode == '라오어' else ''}"
@@ -672,6 +696,26 @@ def _render_backtest():
                 except Exception as e:
                     errors.append(f"{sname}: {e}")
                     st.expander(f"오류 상세 — {sname}").code(traceback.format_exc())
+
+        # ---- 소방공제회(자산 무관, 1회 계산) — 기존 QQQ 코드와 별개 모듈
+        if "소방공제회" in modes:
+            job += 1
+            prog.progress(min(job / total_jobs, 1.0), text="소방공제회 계산 중…")
+            try:
+                n_months = max((end_date.year - start_date.year) * 12
+                               + (end_date.month - start_date.month), 1)
+                ff_monthly = capital / n_months          # 투자금(기준화폐)을 기간 개월수로 분할
+                r_ff = run_firefighter_fund(
+                    start_date, end_date, ff_monthly, currency=base_code,
+                    annual_rate=ff_rate, pay_day=int(ff_payday), tax_rate=ff_tax_rate,
+                    inflation=ff_infl, name=f"소방공제회 {ff_rate * 100:.2f}%",
+                )
+                r_ff.tax_cat = "none"
+                r_ff.asset_ticker = "FIREFIGHTER"
+                results.append(r_ff)
+            except Exception as e:
+                errors.append(f"소방공제회: {e}")
+                st.expander("오류 상세 — 소방공제회").code(traceback.format_exc())
         prog.empty()
 
         if stale_warn:
@@ -837,6 +881,41 @@ def _render_backtest():
     k[3].caption("최대 낙폭")
     k[4].metric("칼마", f"{best['칼마']:.2f}")
     k[4].caption("CAGR ÷ |MDD|")
+
+    # ---- 소방공제회 상세 (선택했을 때만)
+    ff_res = next((r for r in results if getattr(r, "firefighter_summary", None)), None)
+    if ff_res is not None:
+        s = ff_res.firefighter_summary
+        cur = ff_res.currency
+        with st.container(border=True):
+            st.markdown(f"#### 🚒 대한소방공제회 상세 — {ff_res.name} · 금액은 기준화폐({cur})")
+            c = st.columns(4)
+            c[0].metric("총 납입원금", korean_money(s["총납입원금"], cur))
+            c[1].metric("세후 최종자산", korean_money(s["세후최종자산"], cur))
+            c[2].metric("XIRR", f"{s['XIRR']:.2%}" if s["XIRR"] else "-")
+            c[3].metric("실질 최종자산", korean_money(s["실질최종자산"], cur))
+            c2 = st.columns(4)
+            c2[0].metric("세전 최종자산", korean_money(s["세전최종자산"], cur))
+            c2[1].metric("누적 부가금", korean_money(s["누적부가금"], cur))
+            c2[2].metric("예상 세금", korean_money(s["예상세금"], cur))
+            c2[3].metric("적용 세율", f"{s['적용세율']:.1%}")
+            st.caption(
+                f"연 {s['연이율']:.2%} 복리(일할·윤년366/평년365) · 부가금에만 과세 · 물가 {s['물가상승률']:.1%} 가정 · 환율 미적용. "
+                "**해약금(중도해약) 무시**·부가금 100% 지급. ℹ️ **20년 이상 장기 가입 시 저세율 적용**(안내). "
+                "5.03%=2026-01-01 적용 공식 이율, 그 외 값은 가정."
+            )
+            _qq = display_df[display_df["전략명"].str.contains("QQQ")]
+            if not _qq.empty:
+                _qb = _qq.sort_values("최종순자산", ascending=False).iloc[0]
+                _ff = display_df[display_df["전략명"] == ff_res.name]
+                if not _ff.empty:
+                    diff = float(_ff.iloc[0]["최종순자산"]) - float(_qb["최종순자산"])
+                    tcur = _ff.iloc[0]["통화"]
+                    st.info(
+                        f"QQQ({_qb['전략명']}) 대비 소방공제회 최종자산 차이: {diff:+,.0f} {tcur} "
+                        f"— 소방공제회가 QQQ보다 {korean_money(abs(diff), tcur)} "
+                        f"{'많습니다' if diff >= 0 else '적습니다'}. (같은 기간·월납입액·세후 기준)"
+                    )
 
     tabs = st.tabs(["📋 요약표", "🧭 결과 해석", "📈 차트", "💰 현금흐름·이벤트",
                     "♾️ 라오어 세트", "✅ 합성 검증", "📤 내보내기"])

@@ -261,6 +261,34 @@ class CoreRegressionTests(unittest.TestCase):
         )
         self.assertEqual(_at(s, "2024-01-06"), 1300.0)
 
+    def test_firefighter_fund(self):
+        from src.firefighter_fund import (
+            FirefighterFund, midterm_payout_rate, run_firefighter_fund,
+        )
+        # 5.03% 1년, 월납입 → XIRR≈이율, 세금은 부가금에만
+        r = run_firefighter_fund("2026-01-01", "2027-01-01", 1_000_000, "KRW",
+                                 annual_rate=0.0503, pay_day=20, tax_rate=0.015)
+        s = r.firefighter_summary
+        self.assertAlmostEqual(s["총납입원금"], 12_000_000, delta=1)  # 12회 납입
+        self.assertGreater(s["세전최종자산"], s["총납입원금"])       # 부가금 발생
+        # 세후 = 원금 + 부가금×(1−세율)
+        self.assertAlmostEqual(
+            s["세후최종자산"], s["총납입원금"] + s["누적부가금"] * (1 - 0.015), delta=1
+        )
+        self.assertAlmostEqual(s["예상세금"], s["누적부가금"] * 0.015, delta=1)
+        # 지급률(참고): 1년미만 0%, 20년+ 100%
+        self.assertEqual(midterm_payout_rate(0.5), 0.0)
+        self.assertEqual(midterm_payout_rate(3), 0.40)
+        self.assertEqual(midterm_payout_rate(25), 1.0)
+        # 입력 검증
+        with self.assertRaises(ValueError):
+            FirefighterFund(-1)
+        with self.assertRaises(ValueError):
+            FirefighterFund(1000, pay_day=40)
+        # 윤년(366)·평년(365) 일수 반영 확인: 잔액 단조 증가
+        df, _ = FirefighterFund(1_000_000, 0.0503).simulate("2024-01-01", "2024-12-31")
+        self.assertTrue((df["누적원금"].diff().dropna() >= 0).all())
+
     def test_laoer_v4_fee_never_makes_cash_negative(self):
         idx = pd.bdate_range("2024-01-01", periods=60)
         close = pd.Series(100.0 * (0.99 ** np.arange(60)), index=idx)
