@@ -32,7 +32,7 @@ from .validation import validate_intraday_ohlc, validate_synthetic
 OUT_DIR = Path(__file__).resolve().parent.parent / "output" / "reports"
 
 # 배포 버전 — 변경 사항을 올릴 때마다 갱신. 화면에 표시되어 "최신 반영 여부"를 눈으로 확인할 수 있음.
-APP_VERSION = "1.16.1 (2026-08-11) — 적립식 '1회 고정금액' 옵션(매일 N원), 한국종목 코드+종목명 병기, 한국종목 배당재투자(yfinance .KS)"
+APP_VERSION = "1.16.2 (2026-08-11) — 한국 프리셋(삼성전자·SK하이닉스·KODEX·TIGER)도 배당 재투자(.KS 총수익)로 전환, 세금분류 접미사 처리"
 
 MONEY_COLS = ["총투입금", "추가불입", "중도인출", "순투입금", "최종순자산", "총이자",
               "세금", "세후최종순자산", "매매비용"]

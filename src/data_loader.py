@@ -51,12 +51,13 @@ ASSET_PRESETS: dict[str, dict] = {
     "코스피":             {"ticker": "KS11",   "source": "fdr",   "currency": "KRW"},
     "코스닥":             {"ticker": "KQ11",   "source": "fdr",   "currency": "KRW"},
     "코스피200":          {"ticker": "KS200",  "source": "fdr",   "currency": "KRW"},
-    "삼성전자":           {"ticker": "005930", "source": "fdr",   "currency": "KRW"},
-    "SK하이닉스":         {"ticker": "000660", "source": "fdr",   "currency": "KRW"},
-    "KODEX 레버리지":     {"ticker": "122630", "source": "fdr",   "currency": "KRW"},
-    "KODEX 코스닥150레버리지": {"ticker": "233740", "source": "fdr", "currency": "KRW"},
-    "KODEX 200":         {"ticker": "069500", "source": "fdr",   "currency": "KRW"},
-    "TIGER 미국나스닥100": {"ticker": "133690", "source": "fdr",   "currency": "KRW"},
+    # 한국 종목·ETF는 배당 재투자(총수익) 반영 위해 yfinance '.KS' 사용(FDR은 배당 미반영)
+    "삼성전자":           {"ticker": "005930.KS", "source": "yahoo", "currency": "KRW"},
+    "SK하이닉스":         {"ticker": "000660.KS", "source": "yahoo", "currency": "KRW"},
+    "KODEX 레버리지":     {"ticker": "122630.KS", "source": "yahoo", "currency": "KRW"},
+    "KODEX 코스닥150레버리지": {"ticker": "233740.KS", "source": "yahoo", "currency": "KRW"},
+    "KODEX 200":         {"ticker": "069500.KS", "source": "yahoo", "currency": "KRW"},
+    "TIGER 미국나스닥100": {"ticker": "133690.KS", "source": "yahoo", "currency": "KRW"},
     # ---------- 홍콩·중국 지수 (야후 전체 히스토리 검증 완료)
     "항셍지수(HK)":        {"ticker": "^HSI",    "source": "yahoo", "currency": "HKD"},
     "항셍 중국기업(H주)":   {"ticker": "^HSCE",   "source": "yahoo", "currency": "HKD"},
@@ -93,6 +94,7 @@ SYNTH_BASE: dict[str, tuple[str, float, float]] = {
     "SPXL":   ("^GSPC", 3.0, 0.0084),
     "SOXL":   ("^SOX", 3.0, 0.0075),
     "122630": ("KS200", 2.0, 0.0064),   # KODEX 레버리지
+    "122630.KS": ("KS200", 2.0, 0.0064),
 }
 
 _KR_INDEX = {"KS11", "KQ11", "KS200"}
@@ -125,6 +127,9 @@ def tax_category(ticker: str, currency: str) -> str:
     """자산 유형별 세금 카테고리 판정.
     us_overseas(미국 22%) / kr_etf(15.4%) / kr_stock(비과세) / none(지수)."""
     t = ticker.strip().upper()
+    # 한국 야후 접미사(.KS/.KQ) 제거 후 기존 규칙으로 분류(예: 122630.KS → 122630)
+    if t.endswith(".KS") or t.endswith(".KQ"):
+        t = t[:-3]
     # 지수는 직접 매매 상품이 아니므로 통화와 관계없이 과세 대상에서 제외한다.
     if t.startswith("^") or t in _KR_INDEX or t in _CN_HK_INDEX:
         return "none"
