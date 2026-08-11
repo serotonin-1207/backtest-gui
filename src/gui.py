@@ -32,7 +32,7 @@ from .validation import validate_intraday_ohlc, validate_synthetic
 OUT_DIR = Path(__file__).resolve().parent.parent / "output" / "reports"
 
 # 배포 버전 — 변경 사항을 올릴 때마다 갱신. 화면에 표시되어 "최신 반영 여부"를 눈으로 확인할 수 있음.
-APP_VERSION = "1.16.4 (2026-08-11) — 사용자 티커 추가 시 모든 종목에 기업명 병기(AAPL · Apple Inc. / 055550 · 신한지주)"
+APP_VERSION = "1.16.5 (2026-08-11) — 추가된 사용자 티커 목록이 코드 대신 기업명(name)을 표시하도록 수정"
 
 MONEY_COLS = ["총투입금", "추가불입", "중도인출", "순투입금", "최종순자산", "총이자",
               "세금", "세후최종순자산", "매매비용"]
@@ -486,7 +486,7 @@ def _render_backtest():
             st.caption("**추가된 사용자 티커**")
             for i, t in enumerate(st.session_state.custom_tickers):
                 rc1, rc2 = st.columns([4, 1])
-                rc1.markdown(f"• `{t['ticker']}` ({t['currency']})")
+                rc1.markdown(f"• {t.get('name', t['ticker'])} ({t['currency']})")
                 rc2.button("✖", key=f"rm_tk_{i}", on_click=_remove_custom_ticker, args=(i,))
 
         start_basis = st.radio("데이터 시작 기준", ["실제 데이터 시작일", "동일 시작일(합성 채움)"],
