@@ -37,6 +37,18 @@ def fig_equity(results: list, log_scale: bool = False, normalize: bool = True) -
         name = r.name + (" [합성포함]" if r.is_synthetic_used else "")
         fig.add_trace(go.Scatter(x=eq.index, y=y, name=name,
                                  line=dict(color=color_of(i), width=1.8)))
+        # 배당 지급일 마커 (작은 점) — 배당 재투자 시점 표기
+        divs = getattr(r, "dividend_dates", None)
+        if divs:
+            dxs = [d for d in divs if d in y.index]
+            if dxs:
+                fig.add_trace(go.Scatter(
+                    x=dxs, y=[float(y.loc[d]) for d in dxs], mode="markers",
+                    showlegend=False, name=f"{r.name} 배당",
+                    marker=dict(symbol="circle", size=5, color=color_of(i),
+                                line=dict(color="white", width=0.5)),
+                    hovertext=[f"💰 배당 재투자 {d.date()}" for d in dxs],
+                    hoverinfo="text"))
         # 불입/인출 마커
         ups = [(e["date"], e["금액"]) for e in r.events_log if e["구분"] == "추가불입"]
         downs = [(e["date"], e["금액"]) for e in r.events_log if e["구분"] == "중도인출"]

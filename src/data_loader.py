@@ -143,6 +143,30 @@ def tax_category(ticker: str, currency: str) -> str:
     return "none"
 
 
+_DIV_CACHE: dict[str, pd.DatetimeIndex] = {}
+
+
+def dividend_dates(ticker: str, source: str = "yahoo", start=None, end=None) -> list:
+    """배당 지급일 목록(그래프 표기용). yfinance 자산만 지원, 그 외/실패 시 빈 리스트."""
+    if source != "yahoo":
+        return []
+    if ticker not in _DIV_CACHE:
+        try:
+            import yfinance as yf
+            d = yf.Ticker(ticker).dividends
+            idx = (pd.DatetimeIndex(d.index).tz_localize(None).normalize()
+                   if d is not None and len(d) else pd.DatetimeIndex([]))
+            _DIV_CACHE[ticker] = idx
+        except Exception:
+            _DIV_CACHE[ticker] = pd.DatetimeIndex([])
+    idx = _DIV_CACHE[ticker]
+    if start is not None:
+        idx = idx[idx >= pd.Timestamp(start)]
+    if end is not None:
+        idx = idx[idx <= pd.Timestamp(end)]
+    return list(idx)
+
+
 _KR_NAME_CACHE: dict[str, str] = {}
 
 
