@@ -138,6 +138,26 @@ def tax_category(ticker: str, currency: str) -> str:
     return "none"
 
 
+_KR_NAME_CACHE: dict[str, str] = {}
+
+
+def kr_stock_name(code: str) -> str:
+    """6자리 한국 종목코드 → 종목명(예: 055550→신한지주). 실패 시 빈 문자열."""
+    code = str(code).strip()
+    if not re.fullmatch(r"\d{6}", code):
+        return ""
+    if not _KR_NAME_CACHE:
+        try:
+            import FinanceDataReader as fdr
+            lst = fdr.StockListing("KRX")
+            col = "Code" if "Code" in lst.columns else lst.columns[0]
+            for c, n in zip(lst[col].astype(str), lst["Name"].astype(str)):
+                _KR_NAME_CACHE[c] = n
+        except Exception:
+            _KR_NAME_CACHE["_failed"] = ""
+    return _KR_NAME_CACHE.get(code, "")
+
+
 def route_ticker(ticker: str, override: str | None = None) -> tuple[str, str]:
     """티커 → (source, currency). 6자리 숫자/한국지수=fdr·KRW, 그 외=yahoo·USD.
     override: 'kr' 또는 'us'로 수동 지정."""

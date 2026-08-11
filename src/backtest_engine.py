@@ -53,6 +53,7 @@ def run_backtest(
     end: str | pd.Timestamp | None = None,
     dca_freq: str = "매월",
     dca_years: float | None = None,
+    dca_fixed_amount: float | None = None,   # 지정 시 '1회 고정금액'(총액분할 대신)
     events: list[dict] | None = None,
     loan_on: bool = False,
     loan_amount: float = 0.0,
@@ -89,7 +90,8 @@ def run_backtest(
         buy_dates[idx[0]] = capital
     else:  # 적립식
         sched = dca_schedule(idx[0], idx, dca_freq, dca_years)
-        per = capital / max(len(sched), 1)
+        # dca_fixed_amount 지정 시 = '1회 고정금액'(예: 매일 1만원). 미지정 시 = 총액을 분할.
+        per = dca_fixed_amount if dca_fixed_amount else capital / max(len(sched), 1)
         for d in sched:
             buy_dates[d] = per
 

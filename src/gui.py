@@ -18,7 +18,8 @@ from .currency import (CURRENCY_LABELS, SUPPORTED, convert, cross_rate, get_fx_s
                        get_rates, korean_money)
 from .data_loader import (ASSET_PRESETS, INDEX_DIV_YIELD, PRICE_INDEX_TICKERS, SYNTH_BASE,
                           TOTAL_RETURN_TICKERS,
-                          cache_status, clear_cache, get_price, route_ticker, tax_category)
+                          cache_status, clear_cache, get_price, kr_stock_name,
+                          route_ticker, tax_category)
 from .excel_export import build_excel
 from .interpret import interpret_results
 from .laoer_v4 import SUPPORTED_SYMBOLS, run_laoer_v4
@@ -31,7 +32,7 @@ from .validation import validate_intraday_ohlc, validate_synthetic
 OUT_DIR = Path(__file__).resolve().parent.parent / "output" / "reports"
 
 # 배포 버전 — 변경 사항을 올릴 때마다 갱신. 화면에 표시되어 "최신 반영 여부"를 눈으로 확인할 수 있음.
-APP_VERSION = "1.16.0 (2026-07-16) — 투자방식에 '소방공제회'(대한소방공제회 퇴직급여) 추가: 5.03% 일복리·부가금 저세율·해약금 무시·QQQ 세후 비교"
+APP_VERSION = "1.16.1 (2026-08-11) — 적립식 '1회 고정금액' 옵션(매일 N원), 한국종목 코드+종목명 병기, 한국종목 배당재투자(yfinance .KS)"
 
 MONEY_COLS = ["총투입금", "추가불입", "중도인출", "순투입금", "최종순자산", "총이자",
               "세금", "세후최종순자산", "매매비용"]
@@ -165,6 +166,14 @@ def _add_custom_ticker():
     ov = {"자동": None, "한국(kr)": "kr", "미국(us)": "us"}[st.session_state.get("new_ticker_ov", "자동")]
     src, cur = route_ticker(raw, ov)
     tk = raw.upper() if src == "yahoo" else raw
+    # 한국 6자리 종목: 배당 재투자 반영 위해 yfinance '.KS' 우선(실패 시 FDR 폴백)
+    div_reinvested = src == "yahoo"
+    if src == "fdr" and raw.isdigit() and len(raw) == 6:
+        try:
+            if not get_price(f"{raw}.KS", "yahoo", "KRW").empty:
+                tk, src, cur, div_reinvested = f"{raw}.KS", "yahoo", "KRW", True
+        except Exception:
+            pass
     try:
         df = get_price(tk, src, cur)
         ok = df is not None and not df.empty
@@ -176,8 +185,16 @@ def _add_custom_ticker():
     if any(t["ticker"] == tk for t in st.session_state.custom_tickers):
         st.session_state.ticker_msg = ("warn", f"{tk} 은(는) 이미 추가되어 있습니다.")
     else:
-        st.session_state.custom_tickers.append({"name": tk, "ticker": tk, "source": src, "currency": cur})
-        st.session_state.ticker_msg = ("ok", f"✅ {tk} 추가됨 ({cur})")
+        # 한국 종목이면 코드에 종목명 병기 (055550 → 055550 신한지주)
+        code6 = raw if (raw.isdigit() and len(raw) == 6) else ""
+        disp = tk
+        if code6:
+            nm = kr_stock_name(code6)
+            disp = f"{code6} {nm}".strip() if nm else code6
+        st.session_state.custom_tickers.append(
+            {"name": disp, "ticker": tk, "source": src, "currency": cur})
+        note = "배당 재투자 반영" if div_reinvested else "⚠️ 배당 미반영(가격만)"
+        st.session_state.ticker_msg = ("ok", f"✅ {disp} 추가됨 ({cur}, {note})")
     st.session_state.new_ticker_input = ""      # 입력칸 초기화
 
 
@@ -518,6 +535,15 @@ def _render_backtest():
             dca_years = {"전체": None, "1년": 1.0, "3년": 3.0, "5년": 5.0}.get(dca_span)
             if dca_span == "직접입력":
                 dca_years = st.number_input("적립 기간(년)", 0.5, 50.0, 3.0, 0.5)
+            dca_amt_mode = st.radio(
+                "적립 금액 방식", ["1회 고정금액", "총액을 기간에 분할"], index=0,
+                help="**1회 고정금액**: 위 '투자금'을 매 회차(예: 매일) 넣는 돈으로 봅니다 (예: 매일 1만원). "
+                     "**총액 분할**: 위 '투자금'을 전체 기간에 걸쳐 나눠 넣습니다(=투자금÷회차수).",
+            )
+            dca_fixed = dca_amt_mode.startswith("1회")
+            if dca_fixed:
+                st.caption(f"→ 매 {dca_freq.replace('매','')} **{capital:,.0f} {base_code}**씩 적립 "
+                           f"(총액은 회차 수만큼 자동 증가)")
 
         with st.expander("♾️ 라오어 무한매수법 V4.0 (투자방식에 '라오어' 선택 시)", expanded=False):
             st.caption(HELP["라오어"])
@@ -685,7 +711,9 @@ def _render_backtest():
                                          fee_bp=fee_bp, slippage_bp=slip_bp, currency=acur)
                     else:
                         r = run_backtest(ohlc, sname, mode, cap_a, start=start_date, end=end_date,
-                                         dca_freq=dca_freq, dca_years=dca_years, events=events_a,
+                                         dca_freq=dca_freq, dca_years=dca_years,
+                                         dca_fixed_amount=(cap_a if dca_fixed else None),
+                                         events=events_a,
                                          loan_on=loan_on, loan_amount=loan_a,
                                          loan_rate=loan_rate, currency=acur,
                                          synthetic_mask=mask,
