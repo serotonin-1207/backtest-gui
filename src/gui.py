@@ -19,7 +19,7 @@ from .currency import (CURRENCY_LABELS, SUPPORTED, convert, cross_rate, get_fx_s
 from .data_loader import (ASSET_PRESETS, INDEX_DIV_YIELD, PRICE_INDEX_TICKERS, SYNTH_BASE,
                           TOTAL_RETURN_TICKERS,
                           cache_status, clear_cache, dividend_dates, get_price,
-                          kr_stock_name, route_ticker, tax_category)
+                          kr_stock_name, route_ticker, tax_category, ticker_name)
 from .excel_export import build_excel
 from .interpret import interpret_results
 from .laoer_v4 import SUPPORTED_SYMBOLS, run_laoer_v4
@@ -32,7 +32,7 @@ from .validation import validate_intraday_ohlc, validate_synthetic
 OUT_DIR = Path(__file__).resolve().parent.parent / "output" / "reports"
 
 # 배포 버전 — 변경 사항을 올릴 때마다 갱신. 화면에 표시되어 "최신 반영 여부"를 눈으로 확인할 수 있음.
-APP_VERSION = "1.16.3 (2026-08-11) — 누적수익률 그래프에 배당 지급일 마커(💰) 표기(배당 재투자 시점)"
+APP_VERSION = "1.16.4 (2026-08-11) — 사용자 티커 추가 시 모든 종목에 기업명 병기(AAPL · Apple Inc. / 055550 · 신한지주)"
 
 MONEY_COLS = ["총투입금", "추가불입", "중도인출", "순투입금", "최종순자산", "총이자",
               "세금", "세후최종순자산", "매매비용"]
@@ -185,12 +185,11 @@ def _add_custom_ticker():
     if any(t["ticker"] == tk for t in st.session_state.custom_tickers):
         st.session_state.ticker_msg = ("warn", f"{tk} 은(는) 이미 추가되어 있습니다.")
     else:
-        # 한국 종목이면 코드에 종목명 병기 (055550 → 055550 신한지주)
+        # 모든 종목에 기업명 병기 (055550 · 신한지주 / AAPL · Apple Inc.)
         code6 = raw if (raw.isdigit() and len(raw) == 6) else ""
-        disp = tk
-        if code6:
-            nm = kr_stock_name(code6)
-            disp = f"{code6} {nm}".strip() if nm else code6
+        show = code6 or tk
+        nm = ticker_name(tk, src)
+        disp = f"{show} · {nm}" if nm else show
         st.session_state.custom_tickers.append(
             {"name": disp, "ticker": tk, "source": src, "currency": cur})
         note = "배당 재투자 반영" if div_reinvested else "⚠️ 배당 미반영(가격만)"

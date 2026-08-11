@@ -187,6 +187,29 @@ def kr_stock_name(code: str) -> str:
     return _KR_NAME_CACHE.get(code, "")
 
 
+_NAME_CACHE: dict[str, str] = {}
+
+
+def ticker_name(ticker: str, source: str = "yahoo") -> str:
+    """모든 종목의 기업/상품명. 한국 6자리=FDR, 그 외 야후=yfinance longName. 실패 시 ''."""
+    ticker = str(ticker).strip()
+    base = ticker[:-3] if ticker.upper().endswith((".KS", ".KQ")) else ticker
+    if re.fullmatch(r"\d{6}", base):
+        nm = kr_stock_name(base)
+        if nm:
+            return nm
+    if source != "yahoo":
+        return ""
+    if ticker not in _NAME_CACHE:
+        try:
+            import yfinance as yf
+            info = yf.Ticker(ticker).info
+            _NAME_CACHE[ticker] = info.get("longName") or info.get("shortName") or ""
+        except Exception:
+            _NAME_CACHE[ticker] = ""
+    return _NAME_CACHE[ticker]
+
+
 def route_ticker(ticker: str, override: str | None = None) -> tuple[str, str]:
     """티커 → (source, currency). 6자리 숫자/한국지수=fdr·KRW, 그 외=yahoo·USD.
     override: 'kr' 또는 'us'로 수동 지정."""
